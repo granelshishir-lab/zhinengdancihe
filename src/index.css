@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Quicksand", "Inter", system-ui, sans-serif;
+  --font-display: "Fredoka", "Quicksand", sans-serif;
+}
+
+/* Neobrutalist bold cartoon shadows from Vibrant Palette theme */
+.shadow-neo {
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+}
+.shadow-neo-lg {
+  box-shadow: 8px 8px 0px 0px rgba(0,0,0,1);
+}
+.shadow-neo-xl {
+  box-shadow: 12px 12px 0px 0px rgba(0,0,0,1);
+}
+.shadow-neo-sm {
+  box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+}
+
+.hover-slide:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+}
+
+.hover-slide-active:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+}
+
+/* Base custom styles for responsive card flips and visual animations */
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
