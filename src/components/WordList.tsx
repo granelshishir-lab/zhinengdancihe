@@ -18,7 +18,10 @@ import {
   FileSpreadsheet, 
   FileText,
   X,
-  Star
+  Star,
+  RefreshCw,
+  Copy,
+  Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -45,7 +48,14 @@ export const WordList: React.FC<WordListProps> = ({
   // Dialog modals
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
+
+  // Synchronize states
+  const [syncPasteText, setSyncPasteText] = useState("");
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState("");
+  const [isCopied, setIsCopied] = useState(false);
 
   // Single word form states
   const [newWord, setNewWord] = useState("");
@@ -290,6 +300,55 @@ export const WordList: React.FC<WordListProps> = ({
     setImportingWord("");
   };
 
+  // Base64 word export for cross-domain syncing
+  const handleExport = () => {
+    try {
+      const jsonStr = JSON.stringify(words);
+      // Safe base64 encoding with UTF-8 support
+      const base64Str = btoa(encodeURIComponent(jsonStr));
+      navigator.clipboard.writeText(base64Str);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error("Export copy transfer failed:", err);
+    }
+  };
+
+  // Base64 word import for cross-domain syncing
+  const handleImportSync = () => {
+    setSyncStatus('idle');
+    setSyncMessage("");
+    if (!syncPasteText.trim()) {
+      setSyncStatus('error');
+      setSyncMessage("请粘贴您在之前预览网导出的词贴代码哦！");
+      return;
+    }
+
+    try {
+      const decodedJson = decodeURIComponent(atob(syncPasteText.trim()));
+      const parsedWords = JSON.parse(decodedJson);
+      
+      if (!Array.isArray(parsedWords)) {
+        throw new Error("Invalid structure");
+      }
+
+      const validWords = parsedWords.filter(w => w && typeof w.word === 'string');
+      if (validWords.length === 0) {
+        setSyncStatus('error');
+        setSyncMessage("没有在此代码中读取到任何英文词库内容。");
+        return;
+      }
+
+      onAddWords(validWords);
+      setSyncStatus('success');
+      setSyncMessage(`大吉大利！成功合并导入了 ${validWords.length} 个历史单词！🍰`);
+      setSyncPasteText("");
+    } catch (err) {
+      setSyncStatus('error');
+      setSyncMessage("格式有缺陷，无法成功解析！请检查复制的代码是否完整哦。");
+    }
+  };
+
   // Filtered Cards Array
   const filteredWords = words
     .filter(w => {
@@ -386,6 +445,19 @@ export const WordList: React.FC<WordListProps> = ({
               className="px-4 py-2 bg-[#FFD93D] text-black border-2 border-black rounded-xl text-xs font-black shadow-neo-sm hover:translate-y-0.5 hover:shadow-neo-sm transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 text-black stroke-[2.5px]" /> <span>批量导入</span>
+            </button>
+
+            {/* Sync Backup and Restore button */}
+            <button
+              onClick={() => {
+                setIsSyncOpen(true);
+                setSyncStatus('idle');
+                setSyncMessage("");
+              }}
+              className="px-4 py-2 bg-[#4D96FF] text-white border-2 border-black rounded-xl text-xs font-black shadow-neo-sm hover:translate-y-0.5 hover:shadow-neo-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              title="同步或在不同网站间传输词箱数据"
+            >
+              <RefreshCw className="w-4 h-4 text-white stroke-[2.5px]" /> <span>同步传输 🔄</span>
             </button>
           </div>
 
@@ -774,6 +846,116 @@ export const WordList: React.FC<WordListProps> = ({
                   </button>
                 </div>
               )}
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 3: CROSS-DOMAIN WORDBOX SYNC DIALOG */}
+      <AnimatePresence>
+        {isSyncOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs font-sans">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-6 shadow-neo-xl w-full max-w-lg border-4 border-black"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2.5 bg-[#4D96FF] text-white border-2 border-black rounded-xl shadow-neo-sm">
+                    <RefreshCw className="w-5 h-5 animate-spin-slow" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-black">跨网页词箱传输同步</h2>
+                    <p className="text-xs font-bold text-slate-600">在你的本地测试预览网与 Vercel 部署网间互通数据</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsSyncOpen(false)}
+                  className="p-1.5 bg-white border-2 border-black hover:bg-slate-100 text-black rounded-full transition cursor-pointer"
+                >
+                  <X className="w-5 h-5 stroke-[2px]" />
+                </button>
+              </div>
+
+              {/* Explanatory Context Note for the kids */}
+              <div className="bg-[#FFFBEB] p-3 rounded-2xl border-2 border-black text-[12px] font-bold text-slate-700 leading-relaxed mb-4">
+                💡 <b>温馨提示：</b> 因为浏览器安全规则，不同网站域名（比如我们在 AI Studio 的预览网址和您的 Vercel 网址）缓存是各自独立的。通过下面的两步，您可以实现一键完美搬家！
+              </div>
+
+              <div className="space-y-4">
+                {/* Step 1: Export Card */}
+                <div className="p-4 bg-emerald-50 rounded-2xl border-2 border-black relative">
+                  <span className="absolute -top-3 -left-2 bg-[#6BCB77] border-2 border-black rounded-lg px-2 py-0.5 text-[10px] font-black text-white shadow-neo-sm">
+                    步骤 1：从旧网站导出
+                  </span>
+                  <p className="text-[11px] text-slate-600 font-bold mt-1 leading-normal mb-3">
+                    点击按钮，一键打包并复制当前网页里所有已添加的单词数据：
+                  </p>
+                  <button
+                    onClick={handleExport}
+                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-black border-2 border-black shadow-neo-sm flex items-center justify-center gap-2 transition cursor-pointer select-none ${
+                      isCopied 
+                        ? "bg-[#6BCB77] text-white" 
+                        : "bg-white text-black hover:bg-slate-50"
+                    }`}
+                  >
+                    {isCopied ? (
+                      <>
+                        <Check className="w-4 h-4 text-white stroke-[3px]" />
+                        <span>已成功复制我的同步码！快转去 Vercel 网页吧！</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4 text-black" />
+                        <span>一键备份并复制我的词箱同步码</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Step 2: Import Card */}
+                <div className="p-4 bg-sky-50 rounded-2xl border-2 border-black relative">
+                  <span className="absolute -top-3 -left-2 bg-[#4D96FF] border-2 border-black rounded-lg px-2 py-0.5 text-[10px] font-black text-white shadow-neo-sm">
+                    步骤 2：在 Vercel 网站导入
+                  </span>
+                  <p className="text-[11px] text-slate-600 font-bold mt-1 leading-normal mb-2">
+                    在部署好的新 Vercel 网页里打开并贴入上面复制的那段同步码，点击合并：
+                  </p>
+                  <textarea
+                    rows={2}
+                    placeholder="在这里比心按住并粘贴同步码..."
+                    value={syncPasteText}
+                    onChange={(e) => setSyncPasteText(e.target.value)}
+                    className="w-full px-3 py-1.5 text-[11px] bg-white border-2 border-black rounded-xl focus:outline-none font-mono text-slate-500 shadow-neo-sm placeholder:text-slate-400"
+                  />
+                  <button
+                    onClick={handleImportSync}
+                    disabled={!syncPasteText.trim()}
+                    className="w-full mt-2.5 py-2.5 bg-[#4D96FF] text-white font-black border-2 border-black rounded-xl shadow-neo-sm text-xs transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1.5 hover:translate-y-0.5"
+                  >
+                    <Sparkles className="w-4 h-4 fill-white text-white" />
+                    <span>一键合并同步我的历史词箱 🚀</span>
+                  </button>
+                </div>
+
+                {/* Response messages */}
+                {syncStatus === 'success' && (
+                  <div className="p-3 bg-[#6BCB77]/10 border-2 border-[#6BCB77] rounded-xl text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#6BCB77]" />
+                    <span>{syncMessage}</span>
+                  </div>
+                )}
+
+                {syncStatus === 'error' && (
+                  <div className="p-3 bg-rose-50 border-2 border-rose-400 rounded-xl text-center text-xs font-bold text-rose-700 flex items-center justify-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    <span>{syncMessage}</span>
+                  </div>
+                )}
+              </div>
 
             </motion.div>
           </div>
