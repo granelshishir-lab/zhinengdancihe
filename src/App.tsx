@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Word } from "./types";
+import { Word, WordBox } from "./types";
 import { SEED_WORDS } from "./data/seeds";
 import { StatsBanner } from "./components/StatsBanner";
 import { WordList } from "./components/WordList";
@@ -8,8 +8,16 @@ import { QuizGame } from "./components/QuizGame";
 import { BookOpen, Play, Brain, HeartHandshake } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
+const BASE_BOXES: WordBox[] = [
+  { id: "box-default", name: "默认曲奇", color: "#FEF2F2", icon: "🍪", createdAt: 1654160000000 },
+  { id: "box-animals", name: "动物乐园", color: "#F0F9FF", icon: "🦁", createdAt: 1654160000001 },
+  { id: "box-fruits", name: "美味水果", color: "#FFF1F2", icon: "🍎", createdAt: 1654160000002 },
+  { id: "box-daily", name: "日常百宝", color: "#F0FDFA", icon: "🎒", createdAt: 1654160000003 }
+];
+
 export default function App() {
   const [words, setWords] = useState<Word[]>([]);
+  const [wordBoxes, setWordBoxes] = useState<WordBox[]>([]);
   const [stars, setStars] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'box' | 'match' | 'quiz'>('box');
 
@@ -17,15 +25,48 @@ export default function App() {
   useEffect(() => {
     const cachedWords = localStorage.getItem("children_wordbox_words");
     const cachedStars = localStorage.getItem("children_wordbox_stars");
+    const cachedBoxes = localStorage.getItem("children_wordbox_boxes");
+
+    // 1. Initial/Load Word Boxes
+    let loadedBoxes: WordBox[] = BASE_BOXES;
+    if (cachedBoxes) {
+      try {
+        loadedBoxes = JSON.parse(cachedBoxes);
+      } catch (e) {
+        loadedBoxes = BASE_BOXES;
+      }
+    } else {
+      localStorage.setItem("children_wordbox_boxes", JSON.stringify(BASE_BOXES));
+    }
+    setWordBoxes(loadedBoxes);
+
+    // 2. Initial/Load Seeds/Words with boxId mapped appropriately
+    const seedWithBoxes = SEED_WORDS.map(w => {
+      let boxId = "box-default";
+      if (w.id === "seed-apple" || w.id === "seed-banana") {
+        boxId = "box-fruits";
+      } else if (w.id === "seed-elephant") {
+        boxId = "box-animals";
+      } else if (w.id === "seed-robot" || w.id === "seed-rainbow") {
+        boxId = "box-daily";
+      }
+      return { ...w, boxId };
+    });
 
     if (cachedWords) {
       try {
-        setWords(JSON.parse(cachedWords));
+        const parsed = JSON.parse(cachedWords);
+        // Migrate legacy loaded records lacking a boxId
+        const migrated = parsed.map((w: any) => ({
+          ...w,
+          boxId: w.boxId || "box-default"
+        }));
+        setWords(migrated);
       } catch (e) {
-        setWords(SEED_WORDS);
+        setWords(seedWithBoxes);
       }
     } else {
-      setWords(SEED_WORDS);
+      setWords(seedWithBoxes);
     }
 
     if (cachedStars) {
@@ -54,8 +95,11 @@ export default function App() {
   const handleAddWords = (newWords: Word[]) => {
     setWords(currentWords => {
       // Avoid duplicate IDs or words if existing
-      const existingLabels = new Set(currentWords.map(w => w.word.toLowerCase()));
-      const filteredNew = newWords.filter(w => !existingLabels.has(w.word.toLowerCase()));
+      const existingLabels = new Set(currentWords.map(w => w.word));
+      const filteredNew = newWords.map(w => ({
+        ...w,
+        boxId: w.boxId || "box-default"
+      })).filter(w => !existingLabels.has(w.word));
       const updated = [...filteredNew, ...currentWords];
       localStorage.setItem("children_wordbox_words", JSON.stringify(updated));
       return updated;
@@ -75,6 +119,30 @@ export default function App() {
   const handleDeleteWord = (wordId: string) => {
     setWords(currentWords => {
       const updated = currentWords.filter(w => w.id !== wordId);
+      localStorage.setItem("children_wordbox_words", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleAddWordBox = (newBox: WordBox) => {
+    setWordBoxes(prev => {
+      const updated = [...prev, newBox];
+      localStorage.setItem("children_wordbox_boxes", JSON.stringify(updated));
+      return updated;
+    });
+    handleAwardStars(10); // Award 10 stars for creating a new wordbox category!
+  };
+
+  const handleDeleteWordBox = (boxId: string) => {
+    if (boxId === "box-default") return; // cannot delete default
+    setWordBoxes(prev => {
+      const updated = prev.filter(b => b.id !== boxId);
+      localStorage.setItem("children_wordbox_boxes", JSON.stringify(updated));
+      return updated;
+    });
+    // re-assign words in that box to default
+    setWords(currentWords => {
+      const updated = currentWords.map(w => w.boxId === boxId ? { ...w, boxId: "box-default" } : w);
       localStorage.setItem("children_wordbox_words", JSON.stringify(updated));
       return updated;
     });
@@ -170,10 +238,14 @@ export default function App() {
               {activeTab === 'box' && (
                 <WordList
                   words={words}
+                  wordBoxes={wordBoxes}
                   onAddWord={handleAddWord}
                   onAddWords={handleAddWords}
                   onEditWord={handleEditWord}
                   onDeleteWord={handleDeleteWord}
+                  onAddWordBox={handleAddWordBox}
+                  onDeleteWordBox={handleDeleteWordBox}
+                  onAwardStars={handleAwardStars}
                 />
               )}
 

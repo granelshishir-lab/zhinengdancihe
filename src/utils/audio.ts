@@ -14,8 +14,9 @@ export function playSpeech(text: string, options: SpeechOptions = {}) {
   const cleanText = text.replace(/•/g, '').trim();
 
   try {
-    // Detect if text is mostly English for appropriate accent selection
-    const isEnglish = /^[a-zA-Z\s,.'"-?!()]+$/.test(cleanText);
+    // Detect if text is mostly English / has no Chinese characters for appropriate accent selection
+    // [\u4e00-\u9fa5] matches Chinese characters. If there are no Chinese characters, it's treated as English (us/type=2).
+    const isEnglish = !/[\u4e00-\u9fa5]/.test(cleanText);
     const audioUrl = isEnglish
       ? `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&type=2`
       : `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanText)}&type=0`;
@@ -44,15 +45,23 @@ function fallbackSpeechSynthesis(cleanText: string, options: SpeechOptions = {})
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     
-    // Try to find a premium English voice
+    // Try to find a premium US English voice (American Accent)
     const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(v => 
-      v.lang.startsWith('en-') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Premium'))
-    ) || voices.find(v => v.lang.startsWith('en-'));
+    const usVoice = voices.find(v => {
+      const normalizedLang = v.lang.toLowerCase().replace('_', '-');
+      return normalizedLang === 'en-us' && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Premium'));
+    }) || voices.find(v => {
+      const normalizedLang = v.lang.toLowerCase().replace('_', '-');
+      return normalizedLang === 'en-us';
+    }) || voices.find(v => {
+      return v.lang.toLowerCase().replace('_', '-').startsWith('en_us') || v.lang.toLowerCase().replace('_', '-').startsWith('en-us');
+    }) || voices.find(v => {
+      return v.lang.toLowerCase().replace('_', '-').startsWith('en-');
+    });
 
-    if (englishVoice) {
-      utterance.voice = englishVoice;
-      utterance.lang = englishVoice.lang;
+    if (usVoice) {
+      utterance.voice = usVoice;
+      utterance.lang = usVoice.lang;
     } else {
       utterance.lang = options.lang || 'en-US';
     }

@@ -1,5 +1,5 @@
 {
-  "name": "Children Wordbox",
+  "name": "单词曲奇",
   "description": "帮助儿童自主添加和导入单词、自动拆分音节。带有中文翻译、简明英文解释和发音，支持自动生成情景小插图或手动上传图片，并包含闪卡、词义对碰、情景选择等趣味互动检测游戏。",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

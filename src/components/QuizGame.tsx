@@ -356,7 +356,7 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
                   disabled={isAnswered}
                   className={`w-full py-3.5 px-4 rounded-2xl flex items-center justify-between text-left transition font-display text-lg font-black select-none border-4 border-black cursor-pointer ${btnStyle}`}
                 >
-                  <span className="capitalize">{opt}</span>
+                  <span>{opt}</span>
                   {iconElement}
                 </button>
               );

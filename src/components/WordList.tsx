@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Word } from "../types";
+import { Word, WordBox } from "../types";
 import { playSpeech } from "../utils/audio";
 import { 
   Plus, 
@@ -21,29 +21,64 @@ import {
   Star,
   RefreshCw,
   Copy,
-  Check
+  Check,
+  FolderPlus,
+  Trophy,
+  Zap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface WordListProps {
   words: Word[];
+  wordBoxes: WordBox[];
   onAddWord: (wordObj: Word) => void;
   onAddWords: (newWords: Word[]) => void;
   onEditWord: (wordId: string, updated: Partial<Word>) => void;
   onDeleteWord: (wordId: string) => void;
+  onAddWordBox: (newBox: WordBox) => void;
+  onDeleteWordBox: (boxId: string) => void;
+  onAwardStars: (count: number) => void;
 }
 
 export const WordList: React.FC<WordListProps> = ({ 
   words, 
+  wordBoxes,
   onAddWord, 
   onAddWords,
   onEditWord, 
-  onDeleteWord 
+  onDeleteWord,
+  onAddWordBox,
+  onDeleteWordBox,
+  onAwardStars
 }) => {
   // Search state
   const [searchTerm, setSearchTerm] = useState("");
   const [progressFilter, setProgressFilter] = useState<'all' | 'learning' | 'mastered' | 'favorite'>('all');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // WordBox / Category management states
+  const [selectedBoxId, setSelectedBoxId] = useState<string>("all");
+  const [isCreateBoxOpen, setIsCreateBoxOpen] = useState(false);
+  const [newBoxName, setNewBoxName] = useState("");
+  const [newBoxIcon, setNewBoxIcon] = useState("🍪");
+  const [newBoxColor, setNewBoxColor] = useState("#FEF2F2");
+  
+  // Custom single word belongs-to-box-id dropdown state
+  const [targetBoxId, setTargetBoxId] = useState<string>("box-default");
+
+  // Deletion confirmation state for boxes
+  const [boxToDelete, setBoxToDelete] = useState<WordBox | null>(null);
+
+  // Detailed Card zoom-up modal state
+  const [activeZoomWord, setActiveZoomWord] = useState<Word | null>(null);
+
+  // Syllable spelling exercise states
+  const [spellingDifficulty, setSpellingDifficulty] = useState<'all' | 'tricky'>('tricky');
+  const [spellingInputs, setSpellingInputs] = useState<string[]>([]);
+  const [trickyIndices, setTrickyIndices] = useState<number[]>([]);
+  const [spellingStatus, setSpellingStatus] = useState<'idle' | 'success' | 'fail'>('idle');
+  const [showSpellingReveal, setShowSpellingReveal] = useState(false);
+  const [hasAwardedPoints, setHasAwardedPoints] = useState(false); // only award points once per interactive session
 
   // Dialog modals
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -116,6 +151,98 @@ export const WordList: React.FC<WordListProps> = ({
     }
   };
 
+  // Syllable spelling interactive challenge handlers
+  const handleOpenZoomWord = (word: Word) => {
+    setActiveZoomWord(word);
+    
+    const sylls = word.syllables.split("•").map(s => s.trim().toLowerCase());
+    
+    // Define tricky indices for vowel combinations or longest structural modules
+    const indices: number[] = [];
+    if (sylls.length === 1) {
+      indices.push(0);
+    } else {
+      let maxLen = 0;
+      let maxIdx = 0;
+      sylls.forEach((s, idx) => {
+        if (s.length > maxLen) {
+          maxLen = s.length;
+          maxIdx = idx;
+        }
+      });
+      indices.push(maxIdx);
+      
+      if (sylls.length >= 4) {
+        let secondIdx = (maxIdx + 1) % sylls.length;
+        indices.push(secondIdx);
+      }
+    }
+    
+    setTrickyIndices(indices);
+    
+    // Choose what values populate based on starting difficulty level
+    const initialInputs = sylls.map((s, idx) => {
+      if (spellingDifficulty === 'all') return "";
+      return indices.includes(idx) ? "" : s;
+    });
+
+    setSpellingInputs(initialInputs);
+    setSpellingStatus('idle');
+    setShowSpellingReveal(false);
+    setHasAwardedPoints(false);
+  };
+
+  const handleDifficultyToggle = (difficulty: 'all' | 'tricky') => {
+    if (!activeZoomWord) return;
+    setSpellingDifficulty(difficulty);
+    const sylls = activeZoomWord.syllables.split("•").map(s => s.trim().toLowerCase());
+    const initialInputs = sylls.map((s, idx) => {
+      if (difficulty === 'all') return "";
+      return trickyIndices.includes(idx) ? "" : s;
+    });
+    setSpellingInputs(initialInputs);
+    setSpellingStatus('idle');
+    setShowSpellingReveal(false);
+  };
+
+  const checkSpelling = () => {
+    if (!activeZoomWord) return;
+    const sylls = activeZoomWord.syllables.split("•").map(s => s.trim().toLowerCase());
+    
+    let isAllCorrect = true;
+    const currentInputsClean = spellingInputs.map(s => s.trim().toLowerCase());
+    
+    currentInputsClean.forEach((userVal, idx) => {
+      if (userVal !== sylls[idx]) {
+        isAllCorrect = false;
+      }
+    });
+
+    if (isAllCorrect) {
+      setSpellingStatus('success');
+      playSpeech("Amazing! Correct spelling!", { rate: 1.1 });
+      if (!hasAwardedPoints) {
+        onAwardStars(3); // award 3 stars for nailing spelling!
+        setHasAwardedPoints(true);
+      }
+    } else {
+      setSpellingStatus('fail');
+      playSpeech("Let's try that again", { rate: 1.1 });
+    }
+  };
+
+  const handleResetSpelling = () => {
+    if (!activeZoomWord) return;
+    const sylls = activeZoomWord.syllables.split("•").map(s => s.trim().toLowerCase());
+    const initialInputs = sylls.map((s, idx) => {
+      if (spellingDifficulty === 'all') return "";
+      return trickyIndices.includes(idx) ? "" : s;
+    });
+    setSpellingInputs(initialInputs);
+    setSpellingStatus('idle');
+    setShowSpellingReveal(false);
+  };
+
   // Automated dot splitter helper for manual words
   const handleWordFieldChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -127,7 +254,7 @@ export const WordList: React.FC<WordListProps> = ({
   };
 
   const approximateSyllables = (word: string): string => {
-    const clean = word.toLowerCase().trim();
+    const clean = word.trim();
     if (!clean) return "";
     const res = clean.match(/[^aeiouy]*[aeiouy]+(?:[^aeiouy]*(?![aeiouy]))?/gi);
     if (!res || res.length <= 1) return clean;
@@ -175,7 +302,7 @@ export const WordList: React.FC<WordListProps> = ({
 
       const wordObj: Word = {
         id: `word-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        word: cleanWord.toLowerCase(),
+        word: cleanWord,
         syllables: finalSyllables,
         translation: finalTranslation,
         definition: finalDefinition,
@@ -184,7 +311,8 @@ export const WordList: React.FC<WordListProps> = ({
         svgCode: finalSvgCode,
         imageUrl: uploadedImageBase64 || undefined,
         progress: 'learning',
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        boxId: targetBoxId // assign the wordbox category!
       };
 
       onAddWord(wordObj);
@@ -221,7 +349,7 @@ export const WordList: React.FC<WordListProps> = ({
     const importedWords: Word[] = [];
 
     for (let i = 0; i < rawWords.length; i++) {
-      const targetWord = rawWords[i].toLowerCase();
+      const targetWord = rawWords[i];
       setImportingWord(targetWord);
 
       try {
@@ -240,10 +368,11 @@ export const WordList: React.FC<WordListProps> = ({
             translation: data.translation || "导入单词",
             definition: data.definition || `English explanation of ${targetWord}`,
             example: data.example || `An exciting example of ${targetWord}`,
-            imageType: 'svg',
+            imageType: data.svgIllustration ? 'svg' : 'default',
             svgCode: data.svgIllustration || undefined,
             progress: 'learning',
-            createdAt: Date.now() + i // slight stagger to keep order
+            createdAt: Date.now() + i, // slight stagger to keep order
+            boxId: targetBoxId
           };
           importedWords.push(wordObj);
         } else {
@@ -258,7 +387,8 @@ export const WordList: React.FC<WordListProps> = ({
             example: `This is an example with ${targetWord}.`,
             imageType: 'default',
             progress: 'learning',
-            createdAt: Date.now() + i
+            createdAt: Date.now() + i,
+            boxId: targetBoxId
           };
           importedWords.push(wordObj);
         }
@@ -275,7 +405,8 @@ export const WordList: React.FC<WordListProps> = ({
           example: `Example with ${targetWord}.`,
           imageType: 'default',
           progress: 'learning',
-          createdAt: Date.now() + i
+          createdAt: Date.now() + i,
+          boxId: targetBoxId
         };
         importedWords.push(wordObj);
       }
@@ -361,12 +492,95 @@ export const WordList: React.FC<WordListProps> = ({
       } else if (progressFilter !== 'all') {
         matchesProgress = w.progress === progressFilter;
       }
-      return matchesSearch && matchesProgress;
+
+      let matchesBox = true;
+      if (selectedBoxId !== 'all') {
+        matchesBox = (w.boxId || "box-default") === selectedBoxId;
+      }
+      return matchesSearch && matchesProgress && matchesBox;
     })
     .sort((a,b) => b.createdAt - a.createdAt);
 
   return (
     <div className="font-sans">
+
+      {/* 分类词盒选择器 Dashboard */}
+      <div className="mb-6 bg-white p-5 rounded-[28px] border-4 border-black shadow-neo relative overflow-hidden">
+        {/* Playful background cookies decoration */}
+        <div className="absolute top-0 right-0 w-24 h-24 bg-[#FFD93D]/10 rounded-full blur-xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2.5 bg-[#FFD93D] text-black border-2 border-black rounded-xl shadow-neo-sm">
+              <span className="text-xl leading-none">🍪</span>
+            </div>
+            <div>
+              <h4 className="text-base font-black text-black">曲奇家族 / Cookie Families</h4>
+              <p className="text-[11px] text-slate-500 font-bold">分类整理你的词汇，切换词盒筛选卡片！全新自定词盒能赢 10 颗小星星奖励！✨</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setNewBoxName("");
+              setNewBoxColor("#FEF2F2");
+              setNewBoxIcon("🍪");
+              setIsCreateBoxOpen(true);
+            }}
+            className="px-4 py-2 bg-[#6BCB77] text-white border-2 border-black rounded-xl text-xs font-black shadow-neo-sm hover:translate-y-0.5 hover:shadow-neo-sm transition-all flex items-center gap-1.5 cursor-pointer ml-auto sm:ml-0"
+          >
+            <FolderPlus className="w-4 h-4 text-white stroke-[2.5px]" />
+            <span>制作新词盒</span>
+          </button>
+        </div>
+        
+        {/* Horizontal scrollable row for category box cards */}
+        <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-thin select-none">
+          <button
+            onClick={() => setSelectedBoxId('all')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-black shrink-0 border-2 border-black transition shadow-neo-sm flex items-center gap-2 cursor-pointer ${
+              selectedBoxId === 'all'
+                ? 'bg-black text-white hover:bg-slate-900'
+                : 'bg-white text-black hover:bg-slate-50'
+            }`}
+          >
+            <span>🍪</span>
+            <span>显示全部 ({words.length})</span>
+          </button>
+
+          {wordBoxes.map(box => {
+            const boxCount = words.filter(w => (w.boxId || "box-default") === box.id).length;
+            const isSelected = selectedBoxId === box.id;
+            return (
+              <div key={box.id} className="relative shrink-0 flex items-center group">
+                <button
+                  onClick={() => setSelectedBoxId(box.id)}
+                  style={{ backgroundColor: isSelected ? box.color : '#FFFFFF' }}
+                  className={`px-4 py-2.5 rounded-2xl text-xs font-black border-2 border-black transition shadow-neo-sm flex items-center gap-1.5 cursor-pointer hover:scale-[1.02] ${
+                    isSelected ? 'ring-2 ring-black font-extrabold translate-y-[1px]' : 'bg-white'
+                  }`}
+                >
+                  <span className="text-base leading-none">{box.icon}</span>
+                  <span>{box.name} ({boxCount})</span>
+                </button>
+                
+                {/* Word boxes can be deleted except default */}
+                {box.id !== "box-default" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBoxToDelete(box);
+                    }}
+                    className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full border-2 border-black text-xs font-black flex items-center justify-center cursor-pointer hover:bg-red-600 transition"
+                    title="删除此盒"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       
       {/* Search Input and action controller toolbar */}
       <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-[#FEF2F2] p-5 rounded-[24px] border-4 border-black mb-8 shadow-neo">
@@ -376,7 +590,7 @@ export const WordList: React.FC<WordListProps> = ({
           <Search className="absolute left-3 top-3 h-4 w-4 text-black" />
           <input
             type="text"
-            placeholder="搜索我的卡通单词盒..."
+            placeholder="搜索我的卡通单词卡..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-sm bg-white border-2 border-black rounded-xl focus:outline-none focus:ring-0 shadow-neo-sm font-bold text-black"
@@ -477,13 +691,15 @@ export const WordList: React.FC<WordListProps> = ({
             <motion.div
               layoutId={word.id}
               key={word.id}
-              className="bg-white rounded-[32px] p-5 border-4 border-black shadow-neo hover-slide transition-all flex flex-col justify-between"
+              onClick={() => handleOpenZoomWord(word)}
+              whileHover={{ scale: 1.02 }}
+              className="bg-white rounded-[32px] p-5 border-4 border-black shadow-neo hover-slide transition-all flex flex-col justify-between cursor-pointer hover:bg-slate-50/80"
             >
               {/* Card top bar */}
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-3xl font-display font-black text-black capitalize leading-none tracking-wide">
+                    <h3 className="text-3xl font-display font-black text-black leading-none tracking-wide">
                       {word.word}
                     </h3>
                     <button
@@ -665,9 +881,60 @@ export const WordList: React.FC<WordListProps> = ({
                     required
                     placeholder="例如: bicycle, dinosaur, pencil..."
                     value={newWord}
-                    onChange={(e) => setNewWord(e.target.value)}
-                    className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black capitalize shadow-neo-sm"
+                    onChange={(e) => handleWordFieldChange(e)}
+                    className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm"
                   />
+                  
+                  {/* Capitalization adjustments button row */}
+                  <div className="flex gap-2.5 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newWord) {
+                          const first = newWord.charAt(0);
+                          const toggled = first === first.toUpperCase() ? first.toLowerCase() : first.toUpperCase();
+                          const updated = toggled + newWord.slice(1);
+                          setNewWord(updated);
+                          if (!useAI && syllables === "") {
+                            setSyllables(approximateSyllables(updated));
+                          }
+                        }
+                      }}
+                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>Aa 首字母大小写切换</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newWord) {
+                          const updated = newWord.toLowerCase();
+                          setNewWord(updated);
+                          if (!useAI && syllables === "") {
+                            setSyllables(approximateSyllables(updated));
+                          }
+                        }
+                      }}
+                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>aa 全小写</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newWord) {
+                          const updated = newWord.slice(0, 1).toUpperCase() + newWord.slice(1);
+                          setNewWord(updated);
+                          if (!useAI && syllables === "") {
+                            setSyllables(approximateSyllables(updated));
+                          }
+                        }
+                      }}
+                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <span>Aa 首字母大写</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Optional Chinese Translation Overwrite */}
@@ -682,10 +949,26 @@ export const WordList: React.FC<WordListProps> = ({
                   />
                 </div>
 
+                {/* WordBox category assignment */}
+                <div>
+                  <label className="text-xs text-black font-black block mb-1.5">3. 存入哪个曲奇词盒？ / Secret Cookie Box</label>
+                  <select
+                    value={targetBoxId}
+                    onChange={(e) => setTargetBoxId(e.target.value)}
+                    className="w-full px-4 py-2.5 text-sm bg-white border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm cursor-pointer"
+                  >
+                    {wordBoxes.map(box => (
+                      <option key={box.id} value={box.id}>
+                        {box.icon} {box.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Upload Manual Drag-and-Drop Image Dropzone */}
                 <div>
                   <label className="text-xs text-black font-black block mb-1.5">
-                    3. 上传配套情景插画 / Cover Image (可选哦)
+                    4. 上传配套自定插图 / Cover Image（可选哦）
                   </label>
                   
                   <div
@@ -792,6 +1075,24 @@ export const WordList: React.FC<WordListProps> = ({
                       onChange={(e) => setBatchRawText(e.target.value)}
                       className="w-full px-4 py-3 text-sm bg-[#FFFBEB] border-2 border-black rounded-2xl focus:outline-none font-bold text-black shadow-neo-sm"
                     />
+                  </div>
+
+                  {/* WordBox category assignment for batch imports */}
+                  <div>
+                    <label className="text-xs text-black font-black block mb-1.5 text-left font-sans">
+                      存入哪个曲奇词盒？ / Secret Cookie Box
+                    </label>
+                    <select
+                      value={targetBoxId}
+                      onChange={(e) => setTargetBoxId(e.target.value)}
+                      className="w-full px-4 py-2.5 text-sm bg-white border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm cursor-pointer"
+                    >
+                      {wordBoxes.map(box => (
+                        <option key={box.id} value={box.id}>
+                          {box.icon} {box.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <button
@@ -955,6 +1256,439 @@ export const WordList: React.FC<WordListProps> = ({
                     <span>{syncMessage}</span>
                   </div>
                 )}
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 4: CREATE CUSTOM WORDBOX MODAL */}
+      <AnimatePresence>
+        {isCreateBoxOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs font-sans">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-6 shadow-neo-xl w-full max-w-md border-4 border-black"
+            >
+              <div className="flex justify-between items-center mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="p-2.5 bg-[#6BCB77] text-white border-2 border-black rounded-xl shadow-neo-sm">
+                    <FolderPlus className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <h2 className="text-lg font-black text-black">制作专属曲奇词盒</h2>
+                    <p className="text-xs font-bold text-slate-600">定制分类标签，让单词排队整齐</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsCreateBoxOpen(false)}
+                  className="p-1.5 bg-white border-2 border-black hover:bg-slate-100 text-black rounded-full transition cursor-pointer"
+                >
+                  <X className="w-5 h-5 stroke-[2px]" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Name field */}
+                <div>
+                  <label className="text-xs text-black font-black block mb-1.5 text-left font-sans">词盒名称 / Box Label</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={10}
+                    placeholder="例如: 体育运动, 精选修饰..."
+                    value={newBoxName}
+                    onChange={(e) => setNewBoxName(e.target.value)}
+                    className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none font-bold text-black shadow-neo-sm font-sans"
+                  />
+                </div>
+
+                {/* Selected icon emoji choice */}
+                <div>
+                  <label className="text-xs text-black font-black block mb-1.5 text-left font-sans">挑选一个好玩的图标 / Choose Icon</label>
+                  <div className="grid grid-cols-6 gap-2 bg-[#FFFBEB]/45 p-2 rounded-2xl border-2 border-black">
+                    {["🍪", "🐯", "🍎", "🎒", "🚗", "🍕", "🍦", "🎨", "🚀", "🧸", "⚽", "🧩"].map(icon => (
+                      <button
+                        key={icon}
+                        type="button"
+                        onClick={() => setNewBoxIcon(icon)}
+                        className={`py-2 text-2xl rounded-xl border-2 transition-all flex items-center justify-center cursor-pointer select-none ${
+                          newBoxIcon === icon
+                            ? 'bg-[#FFD93D] border-black scale-110 shadow-neo-sm'
+                            : 'bg-white border-transparent hover:bg-slate-100'
+                        }`}
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Color scheme palettes */}
+                <div>
+                  <label className="text-xs text-black font-black block mb-1.5 text-left font-sans">挑选底色风格 / Select Palette Color</label>
+                  <div className="flex gap-2.5 bg-slate-50 p-2.5 rounded-2xl border-2 border-black justify-around">
+                    {[
+                      { hex: "#FEF2F2", label: "草莓红" },
+                      { hex: "#F0F9FF", label: "晴天蓝" },
+                      { hex: "#FFF1F2", label: "樱花粉" },
+                      { hex: "#F0FDFA", label: "薄荷绿" },
+                      { hex: "#FEFEE2", label: "奶黄黄" },
+                      { hex: "#F5F3FF", label: "薰衣紫" }
+                    ].map(colorObj => (
+                      <button
+                        key={colorObj.hex}
+                        type="button"
+                        onClick={() => setNewBoxColor(colorObj.hex)}
+                        style={{ backgroundColor: colorObj.hex }}
+                        className={`w-8 h-8 rounded-full border-2 transition-all cursor-pointer ${
+                          newBoxColor === colorObj.hex
+                            ? 'border-black scale-115 ring-2 ring-black ring-offset-1'
+                            : 'border-[#E2E8F0] hover:scale-105'
+                        }`}
+                        title={colorObj.label}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Create submit action button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newBoxName.trim()) {
+                      alert("请输入词盒的名字哦！");
+                      return;
+                    }
+                    onAddWordBox({
+                      id: `box-${Date.now()}`,
+                      name: newBoxName.trim(),
+                      color: newBoxColor,
+                      icon: newBoxIcon,
+                      createdAt: Date.now()
+                    });
+                    // Give stars!
+                    onAwardStars(10);
+                    setIsCreateBoxOpen(false);
+                  }}
+                  className="w-full mt-4 py-3 bg-[#6BCB77] text-white font-black rounded-xl border-2 border-black shadow-neo flex items-center justify-center gap-1.5 cursor-pointer hover:translate-y-0.5 font-sans"
+                >
+                  <Plus className="w-5 h-5 text-white stroke-[3.5px]" />
+                  <span>正式生成专属词盒（+10🌟）🚀</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 6: DELETE BOX CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {boxToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs font-sans">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-6 shadow-neo-xl w-full max-w-md border-4 border-black text-center"
+            >
+              <div className="w-16 h-16 bg-[#FF6B6B] text-white border-2 border-black rounded-2xl flex items-center justify-center text-3xl shadow-neo-sm mx-auto mb-4 animate-bounce" style={{ animationDuration: '3s' }}>
+                🗑️
+              </div>
+              <h3 className="text-xl font-black text-black mb-2 font-display">删除词盒确认</h3>
+              <p className="text-sm font-bold text-slate-700 leading-relaxed mb-4">
+                确定要删除这个「<span className="text-[#FF6B6B] font-black">{boxToDelete.icon} {boxToDelete.name}</span>」词盒吗？
+                <br />
+                <span className="text-xs text-slate-500 font-bold block mt-2">
+                  💡 别担心，里面的所有单词卡都将自动安全转移到「默认词盒」中，完全不会丢失任何词条哦！🍪
+                </span>
+              </p>
+              
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteWordBox(boxToDelete.id);
+                    if (selectedBoxId === boxToDelete.id) {
+                      setSelectedBoxId('all');
+                    }
+                    setBoxToDelete(null);
+                  }}
+                  className="px-5 py-2.5 bg-[#FF6B6B] text-white font-black rounded-xl border-2 border-black shadow-neo-sm transition cursor-pointer hover:bg-red-600 active:translate-y-0.5 font-sans text-xs"
+                >
+                  确认删除 🗑️
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBoxToDelete(null)}
+                  className="px-5 py-2.5 bg-white text-black font-black rounded-xl border-2 border-black shadow-neo-sm transition cursor-pointer hover:bg-slate-100 active:translate-y-0.5 font-sans text-xs"
+                >
+                  我再想想 🌸
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL 5: DETAIL ZOOM WORD & INTERACTIVE SYLLABLE PRACTICE MODAL */}
+      <AnimatePresence>
+        {activeZoomWord && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs font-sans">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[32px] p-6 shadow-neo-xl w-full max-w-xl border-4 border-black max-h-[92vh] overflow-y-auto relative text-center"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-[#FFEBEE] border-2 border-black rounded-xl shadow-neo-sm animate-bounce" style={{ animationDuration: '4s' }}>
+                    <span className="text-xl">🍪</span>
+                  </div>
+                  <div className="text-left font-sans">
+                    <h2 className="text-lg font-black text-black">{activeZoomWord.word} 词包详情</h2>
+                    <p className="text-xs font-bold text-slate-600">趣味曲奇音节解构拼读大闯关</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveZoomWord(null)}
+                  className="p-1.5 bg-white border-2 border-black hover:bg-[#FFEBEE] text-black rounded-full transition cursor-pointer"
+                >
+                  <X className="w-5 h-5 stroke-[2.5px]" />
+                </button>
+              </div>
+
+              {/* Layout Content Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5 items-stretch">
+                {/* Left Card graphic illustration */}
+                <div className="bg-[#FFFBEB] rounded-2xl p-4 border-2 border-black flex flex-col items-center justify-center min-h-[180px] shadow-neo-sm relative">
+                  <div className="w-36 h-36 bg-white rounded-2xl flex items-center justify-center border-2 border-black p-1.5 shadow-inner overflow-hidden mb-3">
+                    {activeZoomWord.imageType === 'upload' && activeZoomWord.imageUrl ? (
+                      <img 
+                        src={activeZoomWord.imageUrl} 
+                        alt={activeZoomWord.word} 
+                        className="w-full h-full object-cover rounded-xl"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : activeZoomWord.svgCode ? (
+                      <div 
+                        className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:rounded-xl" 
+                        dangerouslySetInnerHTML={{ __html: activeZoomWord.svgCode }} 
+                      />
+                    ) : (
+                      <div className="text-xs text-slate-400 font-bold">暂无插图</div>
+                    )}
+                  </div>
+                  
+                  {/* Pronounce Trigger */}
+                  <button
+                    onClick={(e) => handleSpeak(activeZoomWord.word, e)}
+                    className="px-4 py-2 bg-[#4D96FF] text-white hover:bg-[#2e7aea] border-2 border-black rounded-xl shadow-neo-sm text-xs font-black transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Volume2 className="w-4 h-4 text-white" />
+                    <span>大声朗读 / Voice</span>
+                  </button>
+                </div>
+
+                {/* Right Card textual meanings */}
+                <div className="bg-sky-50 rounded-2xl p-5 border-2 border-black flex flex-col justify-between shadow-neo-sm text-left font-sans">
+                  <div className="space-y-3.5 select-none font-bold">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">中译解释 Translation</span>
+                      <div className="flex items-center gap-1.5 text-black">
+                        <Languages className="w-5 h-5 text-[#FF6B6B]" />
+                        <span className="text-xl font-black font-display text-slate-900">{activeZoomWord.translation}</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">简明定义 Definition</span>
+                      <p className="text-xs text-slate-700 leading-relaxed font-bold">
+                        {activeZoomWord.definition}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-[#FF6B6B] uppercase tracking-widest block mb-1">情景例句 Context Sentence</span>
+                      <p className="text-xs text-slate-800 italic leading-normal border-l-4 border-[#FF6B6B] pl-2 bg-white/40 py-1 rounded font-bold">
+                        "{activeZoomWord.example}"
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-300 pt-3 mt-3 flex justify-between items-center text-[10px] text-slate-500 font-mono">
+                    <span>同步码ID: {activeZoomWord.id}</span>
+                    <span>分类: {wordBoxes.find(b => b.id === (activeZoomWord.boxId || "box-default"))?.name || "默认"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Syllable Spelling Interactive Game Section */}
+              <div className="border-4 border-black rounded-3xl p-5 bg-gradient-to-br from-[#FFEAA7]/30 to-[#FFEAA7]/10 relative overflow-hidden shadow-neo-sm text-center font-sans">
+                
+                {/* Challenge Header */}
+                <div className="flex justify-between items-center mb-4 border-b-2 border-black border-dashed pb-3 text-left">
+                  <div className="flex items-center gap-1.5 text-left">
+                    <Trophy className="w-5 h-5 text-[#FFD93D] fill-[#FFD93D] stroke-black stroke-[2.5px]" />
+                    <span className="text-sm font-black text-black">音节拼写大挑战 / Bubble Spelling</span>
+                  </div>
+                  
+                  {/* Difficulty Mode Toggle buttons */}
+                  <div className="flex items-center bg-white p-1 rounded-xl border-2 border-black shadow-neo-sm">
+                    <button
+                      type="button"
+                      onClick={() => handleDifficultyToggle('tricky')}
+                      className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${
+                        spellingDifficulty === 'tricky'
+                          ? 'bg-[#FF9F43] text-white'
+                          : 'text-slate-600 hover:bg-black/5'
+                      }`}
+                    >
+                      易错部分
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDifficultyToggle('all')}
+                      className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${
+                        spellingDifficulty === 'all'
+                          ? 'bg-[#FF6B6B] text-white'
+                          : 'text-slate-600 hover:bg-black/5'
+                      }`}
+                    >
+                      全部拼写
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-center text-[11px] font-bold text-slate-700 mb-3.5 leading-normal">
+                  💡 {spellingDifficulty === 'tricky' 
+                    ? "老师提示：老师挑出了高难度、或容易拼错的字母，请仔细写出这一部分空缺音节！" 
+                    : "满分挑战！拼写拼图框中的所有音节片，完全写对他会赢得 3 颗小星星哦！"}
+                </p>
+
+                {/* Main Interactive bubbles mapping */}
+                <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+                  {activeZoomWord.syllables.split("•").map((syllable, idx) => {
+                    const cleanSyllable = syllable.trim().toLowerCase();
+                    const isTricky = trickyIndices.includes(idx);
+                    const shouldInput = spellingDifficulty === 'all' || isTricky;
+
+                    return (
+                      <React.Fragment key={idx}>
+                        {shouldInput ? (
+                          <input
+                            type="text"
+                            maxLength={cleanSyllable.length}
+                            value={spellingInputs[idx] || ""}
+                            onChange={(e) => {
+                              const val = e.target.value.toLowerCase().replace(/[^a-z]/gi, '');
+                              const updated = [...spellingInputs];
+                              updated[idx] = val;
+                              setSpellingInputs(updated);
+                              setSpellingStatus('idle');
+                            }}
+                            placeholder="?"
+                            className={`w-14 md:w-16 h-11 text-center font-mono font-black text-sm lowercase rounded-xl border-2 border-black shadow-neo-sm focus:outline-none focus:ring-2 focus:ring-amber-400 ${
+                              spellingStatus === 'success'
+                                ? 'bg-[#D4EDDA] border-[#28A745] text-emerald-800 font-extrabold'
+                                : spellingStatus === 'fail'
+                                ? 'bg-[#F8D7DA] border-[#DC3545] text-rose-800 font-extrabold'
+                                : 'bg-[#FFFBEB] text-amber-940 border-[#E5BA2D]'
+                            }`}
+                            style={{ width: `${Math.max(4, cleanSyllable.length) * 11 + 22}px` }}
+                          />
+                        ) : (
+                          <div className="px-3.5 h-11 bg-white border-2 border-black rounded-xl shadow-neo-sm flex items-center justify-center font-mono font-black text-sm lowercase text-slate-800 select-none">
+                            {cleanSyllable}
+                          </div>
+                        )}
+
+                        {idx < activeZoomWord.syllables.split("•").length - 1 && (
+                          <span className="text-lg font-black text-slate-400 select-none">•</span>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+
+                {/* Result notification alerts */}
+                <div className="min-h-[42px] flex items-center justify-center mb-3">
+                  <AnimatePresence>
+                    {spellingStatus === 'success' && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="bg-emerald-50 border-2 border-[#6BCB77] text-[11px] font-black font-sans text-emerald-800 px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-neo-sm text-left"
+                      >
+                        <Check className="w-4 h-4 text-[#6BCB77] stroke-[3px]" />
+                        <span>超级出色！音节发音拼写完全一致！星星 +3 🌟</span>
+                      </motion.div>
+                    )}
+
+                    {spellingStatus === 'fail' && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="bg-[#FFF0F2] border-2 border-rose-400 text-[11px] font-black font-sans text-rose-700 px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-neo-sm text-left"
+                      >
+                        <AlertCircle className="w-4 h-4 text-rose-500 animate-pulse" />
+                        <span>哎呀，还差一点点，不要气馁哦！🌱</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Submitting Check controllers row */}
+                <div className="flex gap-2.5 items-center justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={checkSpelling}
+                    className="px-4 py-2 bg-[#FFD93D] text-black border-2 border-black rounded-xl text-xs font-black shadow-neo-sm hover:translate-y-0.5 hover:shadow-neo-sm transition-all cursor-pointer flex items-center gap-1 font-sans"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-black fill-black" strokeWidth={3} />
+                    <span>检查答案 / Check</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowSpellingReveal(!showSpellingReveal)}
+                    className="px-4 py-2 bg-white text-slate-700 hover:text-black border-2 border-black rounded-xl text-xs font-bold shadow-neo-sm hover:translate-y-0.5 transition cursor-pointer font-sans"
+                  >
+                    <span>{showSpellingReveal ? "隐藏拼写 🙈" : "偷看一眼 🙈"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetSpelling}
+                    className="px-4 py-2 bg-white text-slate-700 hover:text-black border-2 border-black rounded-xl text-xs font-bold shadow-neo-sm hover:translate-y-0.5 transition cursor-pointer font-sans"
+                  >
+                    <span>重新写 🔄</span>
+                  </button>
+                </div>
+
+                {/* Reveal Answer Bubble */}
+                <AnimatePresence>
+                  {showSpellingReveal && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      className="mt-3.5 p-2 bg-slate-100 rounded-xl border border-dashed border-slate-400 text-center text-xs font-mono font-black"
+                    >
+                      <span className="text-slate-500">音节答案 / Guide Answer:</span>{" "}
+                      <span className="text-emerald-700 lowercase tracking-widest text-sm bg-white border border-slate-300 rounded px-1.5 py-0.5 ml-1 inline-block">
+                        {activeZoomWord.syllables.replace(/•/g, " • ").toLowerCase()}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
               </div>
 
             </motion.div>

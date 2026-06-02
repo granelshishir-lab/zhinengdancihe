@@ -59,7 +59,7 @@ app.post("/api/word/analyze", async (req: express.Request, res: express.Response
     return;
   }
 
-  const cleanWord = word.trim().toLowerCase();
+  const cleanWord = word.trim();
 
   if (!ai) {
     // If no API Key is set, return a high-fidelity fallback immediately
@@ -81,7 +81,7 @@ app.post("/api/word/analyze", async (req: express.Request, res: express.Response
    - Rounded card background built into the SVG (e.g., <rect width="200" height="200" rx="24" fill="#F1F5F9" />) to frame it nicely.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.1-flash-lite",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

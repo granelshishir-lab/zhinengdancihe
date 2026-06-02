@@ -195,7 +195,7 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
                   whileTap={!isMatched ? { scale: 0.95 } : undefined}
                 >
                   <div className="flex flex-col justify-center items-center h-full">
-                    <span className="capitalize text-sm font-display font-black tracking-wide leading-relaxed block overflow-hidden line-clamp-2">
+                    <span className="text-sm font-display font-black tracking-wide leading-relaxed block overflow-hidden line-clamp-2">
                       {card.text}
                     </span>
                     {card.type === 'word' && !isMatched && (

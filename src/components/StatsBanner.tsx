@@ -28,7 +28,7 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({ words, stars }) => {
           </motion.div>
           <div>
             <h1 className="font-display font-black text-3xl text-black tracking-tight flex items-center gap-1">
-              智能单词盒<span className="text-[#FF6B6B]">!</span>
+              单词曲奇<span className="text-[#FF6B6B]">🍪</span>
             </h1>
             <p className="text-xs text-black/80 font-bold uppercase tracking-wider">我的英语探险乐园 • 收集满天星 ✨</p>
           </div>

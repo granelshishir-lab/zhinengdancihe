@@ -11,6 +11,15 @@ export interface Word {
   createdAt: number;
   progress: 'learning' | 'mastered';
   isFavorite?: boolean; // Word Favorite attribute
+  boxId?: string; // Optional custom wordbox/category ID
+}
+
+export interface WordBox {
+  id: string;
+  name: string;
+  color: string; // Tailwind background style or HEX representation
+  icon: string; // Emoji representing the box, e.g. "🦁", "🍎"
+  createdAt: number;
 }
 
 export interface MatchPair {
