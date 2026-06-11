@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { verifyActivationKey } from "./api/authService";
+import { verifyActivationKey } from "./api/index";
 
 dotenv.config();
 
