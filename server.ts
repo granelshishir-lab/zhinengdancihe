@@ -1,133 +1,17 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
-import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { verifyActivationKey } from "./api/index";
+import apiApp from "./api/index.js";
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Initialize Gemini Client
-const apiKey = process.env.GEMINI_API_KEY;
-let ai: GoogleGenAI | null = null;
-
-if (apiKey) {
-  ai = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      }
-    }
-  });
-} else {
-  console.warn("WARNING: GEMINI_API_KEY environment variable is missing. Server running in fallback fallback-mode.");
-}
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
 
-// Fallback Syllable splitting calculation
-function fallbackSyllables(word: string): string {
-  const cleanWord = word.trim().replace(/[^a-zA-Z]/g, '');
-  if (!cleanWord) return word;
-  
-  // Basic syllable splitting heuristic for English
-  const res = cleanWord.match(/[^aeiouy]*[aeiouy]+(?:[^aeiouy]*(?![aeiouy]))?/gi);
-  if (!res || res.length <= 1) return cleanWord;
-  
-  return res.join("•");
-}
-
-// Fallback mock information
-function generateFallback(word: string) {
-  const syll = fallbackSyllables(word);
-  const capped = word.charAt(0).toUpperCase() + word.slice(1);
-  return {
-    syllables: syll,
-    translation: `(演示) ${capped}`,
-    definition: `A basic description of ${word} for kids.`,
-    example: `Look at this cute ${word} over there!`,
-    svgIllustration: `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
-      <rect width="100%" height="100%" rx="24" fill="#EEF2F6"/>
-      <circle cx="100" cy="100" r="50" fill="#6366F1" opacity="0.85"/>
-      <text x="100" y="112" font-family="var(--font-sans), sans-serif" font-size="44" font-weight="bold" fill="white" text-anchor="middle">${word.substring(0, 2).toUpperCase()}</text>
-    </svg>`
-  };
-}
-
-// Express API Route
-app.post("/api/word/analyze", async (req: express.Request, res: express.Response) => {
-  const { word } = req.body;
-  if (!word || typeof word !== "string") {
-    res.status(400).json({ error: "Word is required and must be a string." });
-    return;
-  }
-
-  const cleanWord = word.trim();
-
-  if (!ai) {
-    // If no API Key is set, return a high-fidelity fallback immediately
-    res.json(generateFallback(cleanWord));
-    return;
-  }
-
-  try {
-    const prompt = `You are a friendly, experienced English teacher for elementary school children. Organize the English word: "${cleanWord}".
-1. Segment it into syllables using dots (•) as syllable separators. (e.g. apple is "ap•ple", elephant is "e•le•phant", orange is "or•ange").
-2. Provide a simple, clear Chinese translation suitable for children.
-3. Write a child-friendly, elementary-level simplified English definition.
-4. Construct an engaging, vivid example sentence using this word. Keep it simple and easy for children to understand.
-5. Create a colorful, cute cartoon vector illustration of this word in raw vector SVG format. Ensure it meets these constraints:
-   - Wrapped inside a single responsive <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"> block.
-   - Beautifully filled with vivid child-appealing colors (like flat pastel colors, beautiful gradients, soft shadows).
-   - Use simple clean geometry (rect, circle, path) forming a lovely icon/cartoon of the object (e.g., if "apple", a cute red apple with a glossy highlight and a leaf; if "run", a happy shoe/stick figure running).
-   - No outer XML/HTML markup, markdown backticks, or text before/after the SVG. Just pure valid SVG starting with <svg and ending with </svg>. Ensure no script tags.
-   - Rounded card background built into the SVG (e.g., <rect width="200" height="200" rx="24" fill="#F1F5F9" />) to frame it nicely.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            syllables: { type: Type.STRING, description: "Word with syllables separated by dots (e.g. com•pu•ter)" },
-            translation: { type: Type.STRING, description: "Chinese translation suited for kids (e.g. 电脑)" },
-            definition: { type: Type.STRING, description: "Simple kid-friendly English definition" },
-            example: { type: Type.STRING, description: "vivid child-friendly example sentence" },
-            svgIllustration: { type: Type.STRING, description: "Responsive inline raw <svg>...</svg> vector code depicting the word's situation" }
-          },
-          required: ["syllables", "translation", "definition", "example", "svgIllustration"]
-        }
-      }
-    });
-
-    const textOutput = response.text;
-    if (!textOutput) {
-      throw new Error("No response text from Gemini API.");
-    }
-
-    const payload = JSON.parse(textOutput);
-    res.json(payload);
-  } catch (error: any) {
-    console.error("Gemini analysis error:", error);
-    // Graceful error fallback
-    res.json(generateFallback(cleanWord));
-  }
-});
-
-app.post("/api/auth/verify", (req: express.Request, res: express.Response) => {
-  const { key, deviceId } = req.body;
-  const result = verifyActivationKey(key, deviceId);
-  res.json(result);
-});
+// Mount the integrated API router containing all user auth and word analysis routes
+app.use(apiApp);
 
 // Configure Vite middleware in development, and serve static build in production
 async function startServer() {
@@ -151,8 +35,6 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
-  startServer();
-}
+startServer();
 
 export default app;

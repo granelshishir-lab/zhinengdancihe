@@ -10,6 +10,7 @@ interface MatchingGameProps {
 }
 
 export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars }) => {
+  const [gameMode, setGameMode] = useState<'meaning' | 'image'>('meaning');
   const [cards, setCards] = useState<MatchPair[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<string[]>([]); // holds matched wordIds
@@ -19,18 +20,25 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
 
   useEffect(() => {
     startNewGame();
-  }, [words]);
+  }, [words, gameMode]);
 
   const startNewGame = () => {
     if (words.length < 3) return;
 
     // Pick 4 unique random words
-    const chosenWords = [...words]
+    let pool = [...words];
+    if (gameMode === 'image') {
+      const wordsWithImages = pool.filter(w => w.svgCode || (w.imageType === 'upload' && w.imageUrl));
+      if (wordsWithImages.length >= 3) {
+        pool = wordsWithImages;
+      }
+    }
+
+    const chosenWords = pool
       .sort(() => Math.random() - 0.5)
       .slice(0, 4);
 
-    // Force matching type to translation (English Word and Chinese Translation match)
-    const matchType: 'translation' = 'translation';
+    const matchType = gameMode === 'meaning' ? 'translation' : 'image';
 
     const leftCards: MatchPair[] = chosenWords.map(w => ({
       id: `word-${w.id}`,
@@ -41,9 +49,12 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
 
     const rightCards: MatchPair[] = chosenWords.map(w => ({
       id: `match-${w.id}`,
-      text: matchType === 'translation' ? w.translation : truncateText(w.definition, 45),
+      text: gameMode === 'meaning' ? w.translation : w.word,
       type: matchType,
-      matchedId: w.id
+      matchedId: w.id,
+      svgCode: w.svgCode,
+      imageUrl: w.imageUrl,
+      imageType: w.imageType
     }));
 
     // Shuffle each independently or combined. Shuffling them combined creates a fun, flexible jigsaw board.
@@ -127,15 +138,39 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
   return (
     <div className="bg-white rounded-[32px] p-6 border-4 border-black shadow-neo max-w-2xl mx-auto font-sans text-center">
       
-      <div className="flex justify-between items-center mb-6 max-w-md mx-auto">
-        <h3 className="text-sm font-black text-black uppercase tracking-widest">
-          连线消除 • 词义对碰游戏 🧩
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4 max-w-lg mx-auto">
+        <h3 className="text-sm font-black text-black uppercase tracking-widest flex items-center gap-1.5">
+          <span>连线消除 • {gameMode === 'meaning' ? "词义对碰" : "词图对碰"} 🧩</span>
         </h3>
         <button
           onClick={startNewGame}
           className="p-1 px-4 bg-[#FF6B6B] hover:bg-[#fa5555] text-white hover:text-[#FFFBEB] text-xs rounded-full cursor-pointer flex items-center gap-1 font-black shadow-neo-sm border-2 border-black transition hover:translate-y-0.5 active:translate-y-1"
         >
           <RotateCcw className="w-3.5 h-3.5 text-white stroke-[2.5px]" /> 换一局
+        </button>
+      </div>
+
+      {/* Playful Neo-Brutalist Mode Switcher */}
+      <div className="flex justify-center items-center gap-2 mb-6 max-w-xs mx-auto bg-slate-100 p-1.5 rounded-2xl border-2 border-black shadow-neo-sm">
+        <button
+          onClick={() => setGameMode('meaning')}
+          className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            gameMode === 'meaning'
+              ? 'bg-[#FFD93D] border-2 border-black text-black shadow-neo-sm'
+              : 'text-slate-600 hover:text-black hover:bg-slate-200/50'
+          }`}
+        >
+          词义对碰 🧩
+        </button>
+        <button
+          onClick={() => setGameMode('image')}
+          className={`flex-1 py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            gameMode === 'image'
+              ? 'bg-[#FFD93D] border-2 border-black text-black shadow-neo-sm'
+              : 'text-slate-600 hover:text-black hover:bg-slate-200/50'
+          }`}
+        >
+          词图对碰 🖼️
         </button>
       </div>
 
@@ -159,7 +194,7 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
 
             <h2 className="font-display text-3xl font-black text-black">对碰大成功！ 🌱</h2>
             <p className="text-slate-800 text-sm font-bold mt-2">
-              你太棒了！所有的单词和释义都准确连对啦！荣誉星星已加满！
+              你太棒了！所有的{gameMode === 'meaning' ? "单词和释义" : "单词和插画"}都准确连对啦！荣誉星星已加满！
             </p>
 
             <button
@@ -194,18 +229,42 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
                   className={`p-4 h-24 rounded-2.5xl flex items-center justify-center text-center transition-all duration-200 select-none ${cardStyle}`}
                   whileTap={!isMatched ? { scale: 0.95 } : undefined}
                 >
-                  <div className="flex flex-col justify-center items-center h-full">
-                    <span className="text-sm font-display font-black tracking-wide leading-relaxed block overflow-hidden line-clamp-2">
-                      {card.text}
-                    </span>
-                    {card.type === 'word' && !isMatched && (
-                      <span className="text-[9px] text-white font-black bg-[#4D96FF] px-1.5 py-0.5 rounded-md border border-black mt-2 inline-block uppercase tracking-wider">英文词</span>
+                  <div className="flex flex-col justify-center items-center h-full w-full">
+                    {card.type === 'image' ? (
+                      <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border-2 border-black overflow-hidden shadow-neo-sm shrink-0">
+                        {card.imageType === 'upload' && card.imageUrl ? (
+                          <img 
+                            src={card.imageUrl} 
+                            alt="Situational" 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : card.svgCode ? (
+                          <div 
+                            className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full p-0.5" 
+                            dangerouslySetInnerHTML={{ __html: card.svgCode }} 
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-slate-100 flex items-center justify-center text-xs text-slate-400 font-bold p-1">暂无</div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm font-display font-black tracking-wide leading-relaxed block overflow-hidden line-clamp-2">
+                        {card.text}
+                      </span>
                     )}
-                    {card.type !== 'word' && !isMatched && (
-                      <span className="text-[9px] text-black font-black bg-[#FFD93D] px-1.5 py-0.5 rounded-md border border-black mt-2 inline-block uppercase tracking-wider">释义</span>
+
+                    {card.type === 'word' && !isMatched && (
+                      <span className="text-[9px] text-white font-black bg-[#4D96FF] px-1.5 py-0.5 rounded-md border border-black mt-1.5 inline-block uppercase tracking-wider">英文词</span>
+                    )}
+                    {card.type === 'translation' && !isMatched && (
+                      <span className="text-[9px] text-black font-black bg-[#FFD93D] px-1.5 py-0.5 rounded-md border border-black mt-1.5 inline-block uppercase tracking-wider">词义</span>
+                    )}
+                    {card.type === 'image' && !isMatched && (
+                      <span className="text-[9px] text-white font-black bg-[#9B72CF] px-1.5 py-0.5 rounded-md border border-black mt-1.5 inline-block uppercase tracking-wider">插图</span>
                     )}
                     {isMatched && (
-                      <span className="text-[9px] text-white font-black bg-[#6BCB77] px-1.5 py-0.5 rounded-md border border-black mt-2 inline-block uppercase tracking-wider">Completed ✓</span>
+                      <span className="text-[9px] text-white font-black bg-[#6BCB77] px-1.5 py-0.5 rounded-md border border-black mt-1.5 inline-block uppercase tracking-wider">已消除 ✓</span>
                     )}
                   </div>
                 </motion.div>
@@ -216,7 +275,7 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
       </AnimatePresence>
 
       <div className="text-slate-700 text-xs mt-6 font-extrabold bg-[#FFFBEB] p-2.5 rounded-xl border-2 border-black border-dashed">
-        💡 指引：点击左边或右边的任意卡片，再点击和它匹配的卡片，就可以连线划掉它们并收获小星星。
+        💡 指引：点击一个卡片，再点击和它配对的卡片。<b>词义对碰</b>需匹配单词和释义，<b>词图对碰</b>需匹配单词及对应彩色形象图。消除成功可收获小星星奖励！⭐
       </div>
     </div>
   );

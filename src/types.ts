@@ -25,8 +25,11 @@ export interface WordBox {
 export interface MatchPair {
   id: string;
   text: string;
-  type: 'word' | 'translation' | 'definition';
+  type: 'word' | 'translation' | 'definition' | 'image';
   matchedId: string; // the absolute word id it belongs to
+  svgCode?: string;
+  imageUrl?: string;
+  imageType?: 'upload' | 'svg' | 'default';
 }
 
 export interface QuizQuestion {
