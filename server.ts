@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { verifyActivationKey } from "./api/authService";
 
 dotenv.config();
 
@@ -120,6 +121,12 @@ app.post("/api/word/analyze", async (req: express.Request, res: express.Response
     // Graceful error fallback
     res.json(generateFallback(cleanWord));
   }
+});
+
+app.post("/api/auth/verify", (req: express.Request, res: express.Response) => {
+  const { key, deviceId } = req.body;
+  const result = verifyActivationKey(key, deviceId);
+  res.json(result);
 });
 
 // Configure Vite middleware in development, and serve static build in production

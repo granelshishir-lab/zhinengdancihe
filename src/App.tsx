@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Word, WordBox } from "./types";
 import { SEED_WORDS } from "./data/seeds";
 import { StatsBanner } from "./components/StatsBanner";
@@ -20,6 +20,87 @@ export default function App() {
   const [wordBoxes, setWordBoxes] = useState<WordBox[]>([]);
   const [stars, setStars] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'box' | 'match' | 'quiz'>('box');
+
+  // Authorization and Activation States
+  const [isUnlocked, setIsUnlocked] = useState<boolean | null>(null); // null = checking, false = locked, true = unlocked
+  const [unlockedKey, setUnlockedKey] = useState<string>("");
+  const [deviceId, setDeviceId] = useState<string>("");
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string>("");
+  const [inputKey, setInputKey] = useState<string>("");
+
+  // Load licensing & generate deviceId on start
+  useEffect(() => {
+    let storedDeviceId = localStorage.getItem("children_wordbox_device_id");
+    if (!storedDeviceId) {
+      storedDeviceId = "dev-" + Math.random().toString(36).substring(2, 11) + "-" + Date.now();
+      localStorage.setItem("children_wordbox_device_id", storedDeviceId);
+    }
+    setDeviceId(storedDeviceId);
+
+    const savedKey = localStorage.getItem("children_wordbox_unlocked_key");
+    if (savedKey) {
+      fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: savedKey.trim().toUpperCase(), deviceId: storedDeviceId })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) {
+            setIsUnlocked(true);
+            setUnlockedKey(savedKey.trim().toUpperCase());
+          } else {
+            localStorage.removeItem("children_wordbox_unlocked_key");
+            setIsUnlocked(false);
+            if (data && data.message) {
+              setAuthError(data.message);
+            }
+          }
+        })
+        .catch(err => {
+          console.error("Auth check failed on start:", err);
+          // Let's degrade and allow them if network is strictly offline for demo, but require auth
+          setIsUnlocked(false);
+        })
+        .finally(() => {
+          setAuthLoading(false);
+        });
+    } else {
+      setIsUnlocked(false);
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const handleUnlockSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!inputKey.trim()) {
+      setAuthError("请输入合法的卡密 🌸");
+      return;
+    }
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const formatted = inputKey.trim().toUpperCase();
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: formatted, deviceId })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        localStorage.setItem("children_wordbox_unlocked_key", formatted);
+        setUnlockedKey(formatted);
+        setIsUnlocked(true);
+      } else {
+        setAuthError(data.message || "无效的卡密，请重新输入 🌿");
+      }
+    } catch (err) {
+      setAuthError("连接服务器失败，请检查网络 📶");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   // Load state on startup
   useEffect(() => {
@@ -173,6 +254,108 @@ export default function App() {
       return next;
     });
   };
+
+  if (isUnlocked === null) {
+    return (
+      <div className="min-h-screen bg-[#FFFBEB] flex flex-col items-center justify-center p-4 font-sans select-none relative">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#FFD93D]/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#FF6B6B]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="bg-white border-4 border-black p-8 rounded-[32px] shadow-neo max-w-sm w-full text-center relative z-10 transition-transform">
+          <div className="w-20 h-20 bg-[#FFD93D] text-black border-2 border-black rounded-2xl flex items-center justify-center text-4xl shadow-neo-sm mx-auto mb-6 animate-pulse">
+            🔑
+          </div>
+          <h2 className="text-xl font-black mb-2 tracking-tight">专属授权校验中...</h2>
+          <p className="text-xs text-slate-500 font-bold mb-5">正在连接卡通单词盒中心验证账户安全 🚀</p>
+          <div className="w-full bg-[#FEF2F2] border-2 border-black h-4 rounded-full overflow-hidden">
+            <div 
+              className="bg-[#6BCB77] h-full transition-all duration-300"
+              style={{ width: "85%", animation: "pulse 1.5s infinite" }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-[#FFFBEB] flex flex-col items-center justify-center p-4 font-sans relative">
+        {/* Decorative background illustrations */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#FFD93D]/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#FF6B6B]/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="bg-white border-4 border-black p-6 sm:p-8 rounded-[36px] shadow-neo max-w-lg w-full text-center relative z-10">
+          <div className="w-16 h-16 bg-[#FF6B6B] text-white border-2 border-black rounded-2xl flex items-center justify-center text-3xl shadow-neo-sm mx-auto mb-6 transform hover:rotate-12 transition">
+            🎒
+          </div>
+          
+          <h1 className="text-2xl sm:text-3xl font-black mb-3 text-black tracking-tight" style={{ fontStyle: "normal" }}>
+            🔑 单词乐园 · 冒险起航
+          </h1>
+          
+          <p className="text-xs sm:text-sm font-bold text-slate-700 leading-relaxed mb-6">
+            各位小探险家，请输入您的专属授权码 / 卡密，
+            <br />
+            开启卡通生动插画与趣味发音的英语单词秘境吧！🌸
+          </p>
+
+          <form onSubmit={handleUnlockSubmit} className="space-y-4">
+            <div className="relative">
+              <input
+                type="text"
+                value={inputKey}
+                onChange={(e) => {
+                  setInputKey(e.target.value.toUpperCase());
+                  setAuthError("");
+                }}
+                placeholder="密码: 如 KT-PM-XXXX-XXXX"
+                className="w-full px-5 py-3.5 text-center font-mono font-black text-black bg-[#FFFBEB] border-4 border-black rounded-2xl shadow-neo-sm focus:outline-none focus:ring-0 placeholder-slate-400 text-sm tracking-widest uppercase transition"
+                disabled={authLoading}
+              />
+            </div>
+
+            {authError && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-3 bg-rose-50 border-2 border-rose-400 text-rose-600 rounded-xl text-xs font-black text-left"
+              >
+                ⚠️ 提示: {authError}
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className={`w-full py-3.5 px-6 bg-[#6BCB77] hover:bg-[#59b865] text-white font-black rounded-2xl border-4 border-black shadow-neo-sm hover:translate-y-0.5 active:translate-y-1 transition duration-150 cursor-pointer flex items-center justify-center gap-2 text-sm sm:text-md`}
+            >
+              {authLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>正在检验卡密中...</span>
+                </>
+              ) : (
+                <>
+                  <span>立即解锁我的词盒 🦄</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Guidelines / Tips section */}
+          <div className="mt-8 pt-6 border-t-2 border-dashed border-slate-200 text-left space-y-2.5">
+            <h4 className="text-xs font-black text-slate-800">💡 卡密激活及服务小规则：</h4>
+            <ul className="text-[11px] text-slate-500 space-y-1.5 font-bold leading-relaxed list-disc list-inside">
+              <li><strong className="text-slate-700">双平台绑定：</strong>每一张卡密均限支持 <span className="text-emerald-500 font-extrabold">2</span> 台设备登录（例如手机、电脑可以各绑定 1 台）。</li>
+              <li><strong className="text-slate-700">防重复使用：</strong>一旦成功激活并写满 2 台额度，无法在第 3 台非绑定设备重复登录，需要新卡密。</li>
+              <li><strong className="text-slate-700">试用与永久卡：</strong>试用卡自<span className="text-[#FF6B6B] font-extrabold">首次激活时刻起</span>拥有 <span className="text-[#FF6B6B] font-extrabold">24 小时</span>时效，到期后需更换新卡密。</li>
+              <li>请保护好您的专属授权码，如有疑问请联络您的专属分发管理员 🎒</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FFFBEB] text-black pb-16 antialiased font-sans">

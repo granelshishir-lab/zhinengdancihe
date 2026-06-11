@@ -22,6 +22,15 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
   const [wrongQuestions, setWrongQuestions] = useState<QuizQuestion[]>([]);
   const [isWrongPracticeMode, setIsWrongPracticeMode] = useState(false);
 
+  // Cloze illustration visibility & General image zoom utilities
+  const [isClozeImageRevealed, setIsClozeImageRevealed] = useState(false);
+  const [zoomImage, setZoomImage] = useState<{ type: 'svg' | 'url'; value: string } | null>(null);
+
+  // Reset cloze reveal state when current index or mode changes
+  useEffect(() => {
+    setIsClozeImageRevealed(false);
+  }, [currentIndex, quizMode]);
+
   // Initialize questions
   useEffect(() => {
     generateQuiz();
@@ -261,21 +270,40 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
         {/* Left Side: Pictures Representation (Visual Situation Layout) */}
         <div className="md:col-span-5 flex flex-col justify-center items-center">
           <div className="w-44 h-44 bg-white rounded-3xl border-4 border-black p-2 shadow-neo-sm overflow-hidden flex items-center justify-center relative">
-            {/* Draw custom SVG code or display picture URL */}
-            {currentQuestion.imageUrl ? (
-              <img 
-                src={currentQuestion.imageUrl} 
-                alt="Scene" 
-                className="w-full h-full object-cover rounded-2xl"
-                referrerPolicy="no-referrer"
-              />
-            ) : currentQuestion.svgCode ? (
-              <div 
-                className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:rounded-2xl shrink-0" 
-                dangerouslySetInnerHTML={{ __html: currentQuestion.svgCode }} 
-              />
+            {quizMode === 'cloze' && !isClozeImageRevealed ? (
+              <button
+                type="button"
+                onClick={() => setIsClozeImageRevealed(true)}
+                className="w-full h-full bg-[#FFFBEB] hover:bg-[#FFF2CC] flex flex-col items-center justify-center border-2 border-dashed border-black rounded-2xl group transition duration-150 cursor-pointer p-3 animate-pulse"
+                title="点击显示情景插图"
+              >
+                <span className="text-3xl mb-1.5 group-hover:scale-110 transition duration-150">🖼️</span>
+                <span className="text-[11px] font-black text-black">点击显现插图线索</span>
+                <span className="text-[9px] font-bold text-slate-500 mt-0.5">Show Illustration</span>
+              </button>
             ) : (
-              <div className="text-xs text-slate-400 font-bold p-4 text-center">正在加载精致情景...</div>
+              <>
+                {/* Draw custom SVG code or display picture URL */}
+                {currentQuestion.imageUrl ? (
+                  <img 
+                    src={currentQuestion.imageUrl} 
+                    alt="Scene" 
+                    className="w-full h-full object-cover rounded-2xl cursor-zoom-in hover:scale-105 transition duration-200"
+                    referrerPolicy="no-referrer"
+                    title="点击放大观察"
+                    onClick={() => setZoomImage({ type: 'url', value: currentQuestion.imageUrl! })}
+                  />
+                ) : currentQuestion.svgCode ? (
+                  <div 
+                    className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:rounded-2xl shrink-0 cursor-zoom-in hover:scale-105 transition duration-200" 
+                    dangerouslySetInnerHTML={{ __html: currentQuestion.svgCode }} 
+                    title="点击放大观察"
+                    onClick={() => setZoomImage({ type: 'svg', value: currentQuestion.svgCode! })}
+                  />
+                ) : (
+                  <div className="text-xs text-slate-400 font-bold p-4 text-center">正在加载精致情景...</div>
+                )}
+              </>
             )}
 
             {/* Glowing stars animation anchor */}
@@ -283,13 +311,17 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
               <motion.div 
                 animate={{ scale: [1, 1.4, 1], rotate: [0, 15, -15, 0] }}
                 transition={{ duration: 0.6 }}
-                className="absolute top-2 right-2 bg-[#FFD93D] p-1.5 rounded-full border-2 border-black text-white shadow-md"
+                className="absolute top-2 right-2 bg-[#FFD93D] p-1.5 rounded-full border-2 border-black text-white shadow-md z-10"
               >
                 <Sparkles className="w-5 h-5 fill-white text-white" />
               </motion.div>
             )}
           </div>
-          <p className="text-xs text-slate-700 mt-3 font-extrabold bg-slate-100 border-2 border-black px-2 py-0.5 rounded-md shadow-neo-sm mt-4">观察情景插图辅助作答哦 ✨</p>
+          <p className="text-xs text-slate-700 mt-3 font-extrabold bg-slate-100 border-2 border-black px-2 py-0.5 rounded-md shadow-neo-sm mt-4">
+            {quizMode === 'cloze' && !isClozeImageRevealed 
+              ? "点击上方盒子显现线索插图哦 🔍" 
+              : "观察/点击情景插图辅助作答 🔬"}
+          </p>
         </div>
 
         {/* Right Side: Simple Clue Bubble & 4 Choices */}
@@ -313,7 +345,7 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
                 <p className="font-sans font-black text-black text-sm leading-relaxed pr-8">
                   "{makeClozeSentence(currentQuestion.example, currentQuestion.correctWord)}"
                 </p>
-                <p className="text-[10px] text-slate-500 font-bold mt-2 bg-white/60 p-1.5 rounded border border-black/5 inline-block">中文提示: {currentQuestion.definition}</p>
+                <p className="text-[10px] text-slate-500 font-bold mt-2 bg-white/60 p-1.5 rounded border border-black/5 inline-block">提示: {currentQuestion.definition}</p>
               </>
             ) : (
               <>
@@ -383,6 +415,46 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
           </AnimatePresence>
         </div>
       </div>
+
+      {zoomImage && (
+        <div 
+          onClick={() => setZoomImage(null)} 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 cursor-zoom-out"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white border-4 border-black p-4 sm:p-6 rounded-[32px] shadow-neo max-w-lg w-full relative"
+          >
+            {/* Target Content */}
+            <div className="w-full h-80 sm:h-96 bg-white rounded-2xl flex items-center justify-center overflow-hidden border-2 border-black p-2 relative shadow-inner">
+              {zoomImage.type === 'url' ? (
+                <img 
+                  src={zoomImage.value} 
+                  alt="Zoomed Scene" 
+                  className="w-full h-full object-contain rounded-xl"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div 
+                  className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:rounded-xl" 
+                  dangerouslySetInnerHTML={{ __html: zoomImage.value }} 
+                />
+              )}
+            </div>
+            
+            {/* Close Bar */}
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs font-black text-slate-500">✨ 点击空白处也可以关闭哦</p>
+              <button
+                onClick={() => setZoomImage(null)}
+                className="px-4 py-2 bg-[#FF6B6B] text-white hover:bg-[#eb5a5a] font-black rounded-xl border-2 border-black shadow-neo-sm active:translate-y-0.5 transition cursor-pointer text-xs"
+              >
+                关闭大图
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

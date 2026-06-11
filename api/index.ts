@@ -1,6 +1,7 @@
 import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { verifyActivationKey } from "./authService";
 
 dotenv.config();
 
@@ -111,6 +112,12 @@ app.post("/api/word/analyze", async (req: express.Request, res: express.Response
     // Graceful error fallback
     res.json(generateFallback(cleanWord));
   }
+});
+
+app.post("/api/auth/verify", (req: express.Request, res: express.Response) => {
+  const { key, deviceId } = req.body;
+  const result = verifyActivationKey(key, deviceId);
+  res.json(result);
 });
 
 export default app;

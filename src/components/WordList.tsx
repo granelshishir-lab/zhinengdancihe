@@ -71,6 +71,7 @@ export const WordList: React.FC<WordListProps> = ({
 
   // Detailed Card zoom-up modal state
   const [activeZoomWord, setActiveZoomWord] = useState<Word | null>(null);
+  const [zoomImage, setZoomImage] = useState<{ type: 'svg' | 'url'; value: string } | null>(null);
 
   // Syllable spelling exercise states
   const [spellingDifficulty, setSpellingDifficulty] = useState<'all' | 'tricky'>('tricky');
@@ -741,7 +742,17 @@ export const WordList: React.FC<WordListProps> = ({
 
               {/* Cartoon image / user uploaded drawing in card body */}
               <div className="flex items-start gap-4 my-2.5 bg-[#FFFBEB] p-3 rounded-2xl border-2 border-black">
-                <div className="w-20 h-20 bg-white rounded-xl flex items-center justify-center border-2 border-black p-1 shrink-0 overflow-hidden text-center justify-self-center self-center shadow-neo-sm">
+                <div 
+                  className="w-20 h-20 bg-white rounded-xl flex items-center justify-center border-2 border-black p-1 shrink-0 overflow-hidden text-center justify-self-center self-center shadow-neo-sm cursor-zoom-in hover:scale-105 transition duration-150"
+                  title="点击放大观察"
+                  onClick={() => {
+                    if (word.imageType === 'upload' && word.imageUrl) {
+                      setZoomImage({ type: 'url', value: word.imageUrl });
+                    } else if (word.svgCode) {
+                      setZoomImage({ type: 'svg', value: word.svgCode });
+                    }
+                  }}
+                >
                   {word.imageType === 'upload' && word.imageUrl ? (
                     <img 
                       src={word.imageUrl} 
@@ -1466,7 +1477,17 @@ export const WordList: React.FC<WordListProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5 items-stretch">
                 {/* Left Card graphic illustration */}
                 <div className="bg-[#FFFBEB] rounded-2xl p-4 border-2 border-black flex flex-col items-center justify-center min-h-[180px] shadow-neo-sm relative">
-                  <div className="w-36 h-36 bg-white rounded-2xl flex items-center justify-center border-2 border-black p-1.5 shadow-inner overflow-hidden mb-3">
+                  <div 
+                    className="w-36 h-36 bg-white rounded-2xl flex items-center justify-center border-2 border-black p-1.5 shadow-inner overflow-hidden mb-3 cursor-zoom-in hover:scale-105 transition duration-150"
+                    title="点击放大观察"
+                    onClick={() => {
+                      if (activeZoomWord.imageType === 'upload' && activeZoomWord.imageUrl) {
+                        setZoomImage({ type: 'url', value: activeZoomWord.imageUrl });
+                      } else if (activeZoomWord.svgCode) {
+                        setZoomImage({ type: 'svg', value: activeZoomWord.svgCode });
+                      }
+                    }}
+                  >
                     {activeZoomWord.imageType === 'upload' && activeZoomWord.imageUrl ? (
                       <img 
                         src={activeZoomWord.imageUrl} 
@@ -1695,6 +1716,46 @@ export const WordList: React.FC<WordListProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {zoomImage && (
+        <div 
+          onClick={() => setZoomImage(null)} 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 cursor-zoom-out"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white border-4 border-black p-4 sm:p-6 rounded-[32px] shadow-neo max-w-lg w-full relative"
+          >
+            {/* Target Content */}
+            <div className="w-full h-80 sm:h-96 bg-white rounded-2xl flex items-center justify-center overflow-hidden border-2 border-black p-2 relative shadow-inner">
+              {zoomImage.type === 'url' ? (
+                <img 
+                  src={zoomImage.value} 
+                  alt="Zoomed Scene" 
+                  className="w-full h-full object-contain rounded-xl"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div 
+                  className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:rounded-xl" 
+                  dangerouslySetInnerHTML={{ __html: zoomImage.value }} 
+                />
+              )}
+            </div>
+            
+            {/* Close Bar */}
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs font-black text-slate-500">✨ 点击空白处也可以关闭哦</p>
+              <button
+                onClick={() => setZoomImage(null)}
+                className="px-4 py-2 bg-[#FF6B6B] text-white hover:bg-[#eb5a5a] font-black rounded-xl border-2 border-black shadow-neo-sm active:translate-y-0.5 transition cursor-pointer text-xs"
+              >
+                关闭大图
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
