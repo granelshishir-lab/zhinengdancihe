@@ -22,8 +22,6 @@ try {
   currentDirname = process.cwd();
 }
 
-const DB_PATH = path.join(currentDirname, "../keys_db.json");
-
 interface KeyStatus {
   type: "permanent" | "trial";
   activatedDevices: string[];
@@ -34,37 +32,82 @@ interface KeysDB {
   keys: Record<string, KeyStatus>;
 }
 
-// Read database helper with multi-path safety
+// In-memory runtime database cache to guarantee instant lookups and prevent repeated IO
+let memCacheDB: KeysDB | null = null;
+
+// Read database helper with multi-path safety and static literal paths for Vercel NFT tracing
 function readDB(): KeysDB {
+  if (memCacheDB) {
+    return memCacheDB;
+  }
+
+  // 1. Literal path for Vercel NFT asset trace (Vercel automatically copies keys_db.json during build if written literally)
   try {
-    if (fs.existsSync(DB_PATH)) {
-      const content = fs.readFileSync(DB_PATH, "utf-8");
-      return JSON.parse(content);
-    } else {
-      // Fallback: If DB_PATH is not found but process.cwd() works, try fallback path
-      const fallbackPath = path.join(process.cwd(), "keys_db.json");
-      if (fs.existsSync(fallbackPath)) {
-        const content = fs.readFileSync(fallbackPath, "utf-8");
-        return JSON.parse(content);
-      }
+    const primaryPath = path.join(process.cwd(), "keys_db.json");
+    if (fs.existsSync(primaryPath)) {
+      const content = fs.readFileSync(primaryPath, "utf-8");
+      const parsed = JSON.parse(content);
+      memCacheDB = parsed;
+      return parsed;
     }
   } catch (error) {
-    console.error("Failed to read keys database:", error);
+    console.error("Failed to read keys database from process.cwd() keys_db.json:", error);
   }
+
+  // 2. Direct folder-relative tracing fallback
+  try {
+    const relativePath = path.join(currentDirname, "../keys_db.json");
+    if (fs.existsSync(relativePath)) {
+      const content = fs.readFileSync(relativePath, "utf-8");
+      const parsed = JSON.parse(content);
+      memCacheDB = parsed;
+      return parsed;
+    }
+  } catch (error) {}
+
+  // 3. Current folder-relative backup tracing
+  try {
+    const currentLocPath = path.join(currentDirname, "keys_db.json");
+    if (fs.existsSync(currentLocPath)) {
+      const content = fs.readFileSync(currentLocPath, "utf-8");
+      const parsed = JSON.parse(content);
+      memCacheDB = parsed;
+      return parsed;
+    }
+  } catch (error) {}
+
+  // 4. Fallback search
+  try {
+    const fallbackPath = path.join(process.cwd(), "api/keys_db.json");
+    if (fs.existsSync(fallbackPath)) {
+      const content = fs.readFileSync(fallbackPath, "utf-8");
+      const parsed = JSON.parse(content);
+      memCacheDB = parsed;
+      return parsed;
+    }
+  } catch (error) {}
+
+  console.error("All file paths for keys_db.json exhausted! Verification failed to read licensing database.");
   return { keys: {} };
 }
 
-// Write database helper with error catching and read-only fallback to memory or tmp
+// Write database helper with error catching and read-only fallback to memory
 function writeDB(db: KeysDB): void {
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
-  } catch (error) {
-    console.error("Failed to write keys database to main path:", error);
+  // Always update our local cache
+  memCacheDB = db;
+
+  const targets = [
+    path.join(process.cwd(), "keys_db.json"),
+    path.join(currentDirname, "../keys_db.json"),
+    path.join(currentDirname, "keys_db.json")
+  ];
+
+  for (const targetPath of targets) {
     try {
-      const fallbackPath = path.join(process.cwd(), "keys_db.json");
-      fs.writeFileSync(fallbackPath, JSON.stringify(db, null, 2));
-    } catch (err) {
-      console.error("Failed to write keys database to fallback path:", err);
+      fs.writeFileSync(targetPath, JSON.stringify(db, null, 2));
+      return; // break on successful write
+    } catch (error) {
+      // Ignored for environments like Vercel Serverless with read-only filesystems
     }
   }
 }
