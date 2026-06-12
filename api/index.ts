@@ -1,7 +1,7 @@
 import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { loadDB, saveDB, UserAccount } from "./db.js";
+import { loadDB, saveDB, UserAccount, isCryptographicallyValidKey, generateSignedKey } from "./db.js";
 
 dotenv.config();
 
@@ -66,9 +66,26 @@ app.post("/api/auth/verify-key", async (req, res) => {
     const inputKey = activationKey.trim().toUpperCase();
 
     // Scan users for a matching activationKey
-    const matchedUser = Object.values(db.users).find(
+    let matchedUser = Object.values(db.users).find(
       (u) => u.activationKey && u.activationKey.trim().toUpperCase() === inputKey
     );
+
+    // Self-healing: If not found in memory but cryptographically valid, dynamically seed it!
+    if (!matchedUser && isCryptographicallyValidKey(inputKey)) {
+      const lUsername = "kid_" + inputKey.toLowerCase().replace(/[^a-z0-9]/g, "");
+      matchedUser = {
+        username: lUsername,
+        passwordPlain: "secured_card_key_pass",
+        activationKey: inputKey,
+        activated: false,
+        words: [],
+        stars: 20,
+        wordBoxes: [],
+        lastActiveDates: {}
+      };
+      db.users[lUsername] = matchedUser;
+      await saveDB(db);
+    }
 
     if (!matchedUser) {
       res.json({ success: false, message: "卡密验证失败，请重新核对输入！🌿" });
@@ -395,7 +412,7 @@ app.post("/api/admin/generate", async (req, res) => {
       } while (db.users[username]);
 
       const password = generateRandomStr(6, chars);
-      const activeKey = "KID-" + generateRandomStr(4, keyChars) + "-" + generateRandomStr(4, keyChars);
+      const activeKey = generateSignedKey();
 
       const newUser: UserAccount = {
         username,
