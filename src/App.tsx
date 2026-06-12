@@ -223,8 +223,8 @@ export default function App() {
     // Trim trailing newlines
     resultTxt = resultTxt.trim();
 
-    // Spawn a direct browser blob streaming download
-    const blob = new Blob([resultTxt], { type: "text/plain;charset=utf-8;" });
+    // Spawn a direct browser blob streaming download with UTF-8 BOM marker (\ufeff)
+    const blob = new Blob(["\ufeff" + resultTxt], { type: "text/plain;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -358,12 +358,6 @@ export default function App() {
     submitAdminLoginDirect(adminUsernameInput, adminPasswordInput);
   };
 
-  const handleQuickAdminLogin = () => {
-    setAdminUsernameInput("admin");
-    setAdminPasswordInput("admin123");
-    submitAdminLoginDirect("admin", "admin123");
-  };
-
   const fetchAdminUsers = async (token = adminToken) => {
     if (!token) return;
     try {
@@ -438,18 +432,18 @@ export default function App() {
       return;
     }
 
-    let out = "🎒 ===== 英语单词乐园 · 专属账号卡密分发单 =====\n";
+    let out = "🎒 ===== 英语单词乐园 · 专属激活卡密分发单 =====\n";
     unused.forEach((u, i) => {
-      out += `${i + 1}. 账号: ${u.username}   密码: ${u.passwordPlain}   激活卡密: ${u.activationKey}\n`;
+      out += `${i + 1}. 激活卡密: ${u.activationKey}\n`;
     });
-    out += "===============================================\n💡 账号首次登录进入乐园时输入该卡密激活即可永久使用设备绑定！";
+    out += "===============================================\n💡 账号首次登录进入乐园时仅需输入该激活卡密即可永久使用并绑定设备！";
 
     copyTextToClipboard(out, "一键复制全部分发文本成功！");
   };
 
   const copyRow = (row: any) => {
-    const t = `账号: ${row.username}  密码: ${row.passwordPlain}  卡密: ${row.activationKey}`;
-    copyTextToClipboard(t, "卡片信息复制成功！");
+    const t = `激活卡密: ${row.activationKey}`;
+    copyTextToClipboard(t, "卡密分发文本复制成功！");
   };
 
   const handleRevokeKey = async (username: string, revoke: boolean) => {
@@ -556,12 +550,6 @@ export default function App() {
               <h2 className="text-xl font-black mb-2 flex items-center gap-1.5 leading-none">
                 管理员身份认证
               </h2>
-              <div className="bg-amber-50 border-2 border-amber-300 p-3 rounded-xl text-[11px] font-bold text-amber-800 space-y-1.5 mb-4 leading-normal">
-                <p className="font-extrabold text-xs">💡 推荐内置管理员凭证：</p>
-                <div className="flex justify-between"><span>账号 username:</span> <code className="bg-amber-100 px-1 py-0.5 rounded font-mono select-all">admin</code></div>
-                <div className="flex justify-between"><span>密码 password:</span> <code className="bg-amber-100 px-1 py-0.5 rounded font-mono select-all">admin123</code></div>
-              </div>
-
               <form onSubmit={handleAdminLogin} className="space-y-4">
                 <div>
                   <label className="block text-xs font-black mb-1.5 text-slate-700">管理员账号</label>
@@ -600,14 +588,6 @@ export default function App() {
                   >
                     确认登录后台 🔑
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={handleQuickAdminLogin}
-                    className="w-full py-2.5 bg-emerald-400 hover:bg-emerald-500 text-black border-2 border-black rounded-xl font-black text-xs shadow-[3px_3px_0px_0px_#000] cursor-pointer flex items-center justify-center gap-1"
-                  >
-                    <span>⚡ 一键填入默认凭证并登录 ⚡</span>
-                  </button>
                 </div>
               </form>
             </div>
@@ -618,10 +598,10 @@ export default function App() {
             <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 leading-none">
-                  探险家词盒账号控制台 🚀
+                  探险家词盒专属卡密控制台 🚀
                 </h1>
                 <p className="text-xs font-bold text-slate-500 mt-1">
-                  在此可以批量派发账号、密码与一站式永久专属激活激活码并跟踪使用状态。
+                  在此可以批量生成专属永久激活卡密并跟踪卡密激活状态。
                 </p>
               </div>
               <button
@@ -636,17 +616,17 @@ export default function App() {
             {/* QUICK STATS */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               <div className="bg-white border-2 border-black p-4 rounded-2xl shadow-[3px_3px_0px_0px_#000]">
-                <div className="text-xs text-slate-500 font-bold">已注册总账号</div>
+                <div className="text-xs text-slate-500 font-bold">总生成卡密</div>
                 <div className="text-2xl font-black mt-1 text-slate-900">{adminUsers.length}</div>
               </div>
               <div className="bg-white border-2 border-black p-4 rounded-2xl shadow-[3px_3px_0px_0px_#000]">
-                <div className="text-xs text-slate-500 font-bold">已激活学生账户</div>
+                <div className="text-xs text-slate-500 font-bold">已激活卡密</div>
                 <div className="text-2xl font-black mt-1 text-emerald-500">
                   {adminUsers.filter(u => u.activated).length}
                 </div>
               </div>
               <div className="bg-white border-2 border-black p-4 rounded-2xl shadow-[3px_3px_0px_0px_#000] col-span-2 md:col-span-1">
-                <div className="text-xs text-slate-500 font-bold">未使用/可派发</div>
+                <div className="text-xs text-slate-500 font-bold">未激活/待派发</div>
                 <div className="text-2xl font-black mt-1 text-indigo-500">
                   {adminUsers.filter(u => !u.activated).length}
                 </div>
@@ -658,7 +638,7 @@ export default function App() {
               {/* Generate New Credentials Column */}
               <div className="bg-white border-4 border-black p-5 rounded-[24px] shadow-[4px_4px_0px_0px_#000] md:col-span-5">
                 <h3 className="text-sm font-black text-slate-800 mb-4 flex items-center gap-1.5 pb-2 border-b-2 border-slate-100">
-                  <span>🛠️ 批量生成学生钥匙</span>
+                  <span>🛠️ 批量生成激活卡密</span>
                 </h3>
                 <div className="space-y-4">
                   <div>
@@ -698,7 +678,7 @@ export default function App() {
                     className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white border-2 border-black rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-[3px_3px_0px_0px_#000] cursor-pointer"
                   >
                     <Copy className="w-3.5 h-3.5" />
-                    <span>一键复制所有未使用账号分发文本</span>
+                    <span>一键复制所有未激活卡密</span>
                   </button>
                 </div>
               </div>
@@ -707,7 +687,7 @@ export default function App() {
               <div className="bg-white border-4 border-black p-5 rounded-[24px] shadow-[4px_4px_0px_0px_#000] md:col-span-7">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 pb-2 border-b-2 border-slate-100">
                   <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
-                    <span>📋 账号密码与卡密库列表</span>
+                    <span>📋 派发激活卡密库列表</span>
                   </h3>
                   
                   {/* Search inside dashboard */}
@@ -715,7 +695,7 @@ export default function App() {
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
                     <input
                       type="text"
-                      placeholder="搜搜索账号..."
+                      placeholder="搜索卡密..."
                       value={userSearchText}
                       onChange={(e) => setUserSearchText(e.target.value.toLowerCase())}
                       className="w-full pl-8 pr-2 py-1.5 bg-slate-50 border-2 border-black rounded-lg text-xs font-bold focus:outline-none"
@@ -726,26 +706,16 @@ export default function App() {
                 {/* USER ROW LIST */}
                 <div className="overflow-y-auto max-h-[400px] pr-1 space-y-3">
                   {adminUsers
-                    .filter(u => !userSearchText || u.username.toLowerCase().includes(userSearchText))
+                    .filter(u => !userSearchText || u.activationKey.toLowerCase().includes(userSearchText))
                     .map((user, idx) => (
                       <div 
                         key={idx}
                         className="bg-slate-50 border-2 border-black p-3.5 rounded-xl flex flex-col justify-between items-start gap-3 md:flex-row md:items-center"
                       >
                         <div className="space-y-1 font-mono text-xs w-full">
-                          <div className="flex items-center justify-between">
-                            <span className="font-sans font-black text-xs text-slate-800">账号：</span>
-                            <span className="bg-indigo-50 text-indigo-700 font-black px-1.5 py-0.5 rounded border border-indigo-200">
-                              {user.username}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>密码：</span>
-                            <span className="font-extrabold text-slate-600">{user.passwordPlain}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>激活卡密：</span>
-                            <span className="font-black text-[#FF6B6B] bg-[#FFF5F5] border border-red-200 px-1 py-0.2 rounded">
+                          <div className="flex justify-between items-center bg-[#FFF5F5] border border-red-200 px-3 py-2 rounded-xl">
+                            <span className="font-sans font-black text-xs text-slate-700">卡密字符串：</span>
+                            <span className="font-extrabold text-[#FF6B6B] text-sm tracking-wider">
                               {user.activationKey}
                             </span>
                           </div>

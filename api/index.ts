@@ -330,9 +330,9 @@ app.post("/api/word/sync", async (req, res) => {
 // ADMIN MANAGEMENT ENDPOINTS
 // -----------------------------------------------------------------
 
-// Admin credentials (Secure configuration, output only in response chatbox)
-const ADMIN_USERNAME = "admin_vocab";
-const ADMIN_PASSWORD = "vocab_super_secure_9988";
+// Admin credentials loaded strictly from environment variables (No hardcoded credentials)
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // Admin Login
 app.post("/api/admin/login", (req, res) => {
@@ -342,33 +342,21 @@ app.post("/api/admin/login", (req, res) => {
     return;
   }
 
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    res.json({ success: false, message: "服务器未配置管理员账号/密码环境变量 (ADMIN_USERNAME, ADMIN_PASSWORD) 🔒" });
+    return;
+  }
+
   const inputUser = username.trim().toLowerCase();
   const inputPass = password.trim();
 
-  console.log(`[Admin Login Attempt] Username: "${inputUser}", Password Length: ${inputPass.length}`);
+  console.log(`[Admin Login Attempt] Username: "${inputUser}"`);
 
-  // Guarantee maximum compatibility by supporting secure credentials, simple fallbacks, and standard combinations
-  const isMatchUser = (
-    inputUser === ADMIN_USERNAME.toLowerCase() || 
-    inputUser.includes("admin") ||
-    inputUser === "vocab"
-  );
-  
-  const isMatchPass = (
-    inputPass.length >= 4 ||
-    inputPass === ADMIN_PASSWORD || 
-    inputPass === "admin123" || 
-    inputPass === "vocab9988" || 
-    inputPass === "admin" || 
-    inputPass === "123456" ||
-    inputPass.toLowerCase() === "vocab_super_secure_9988"
-  );
-
-  if (isMatchUser && isMatchPass) {
+  if (inputUser === ADMIN_USERNAME.toLowerCase() && inputPass === ADMIN_PASSWORD) {
     console.log("[Admin Login] Login successful!");
     res.json({ success: true, token: "admin_session_token_approved_3f8ee70c" });
   } else {
-    console.warn(`[Admin Login] Failed pattern mismatch. UserMatch=${isMatchUser}, PassMatch=${isMatchPass}`);
+    console.warn(`[Admin Login] Failed pattern mismatch.`);
     res.json({ success: false, message: "管理员账号或密码错误 🔒" });
   }
 });

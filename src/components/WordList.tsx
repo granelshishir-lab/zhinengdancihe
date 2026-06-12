@@ -661,12 +661,7 @@ export const WordList: React.FC<WordListProps> = ({
                       return (
                         <React.Fragment key={sIdx}>
                           <span 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              playSpeech(cleanSyll, { rate: 0.75 });
-                            }}
-                            className="text-xs font-black text-[#FF6B6B] font-mono tracking-wider bg-[#FFFBEB] hover:bg-[#FFE5E5] px-2 py-0.5 rounded-md border-2 border-black inline-block cursor-pointer active:translate-y-px transition select-none"
-                            title={`点击发音: ${cleanSyll}`}
+                            className="text-xs font-black text-[#FF6B6B] font-mono tracking-wider bg-[#FFFBEB] px-2 py-0.5 rounded-md border-2 border-black inline-block select-none"
                           >
                             {cleanSyll}
                           </span>
@@ -1466,9 +1461,7 @@ export const WordList: React.FC<WordListProps> = ({
                           />
                         ) : (
                           <div 
-                            onClick={() => playSpeech(cleanSyllable, { rate: 0.75 })}
-                            className="px-3.5 h-11 bg-white border-2 border-black rounded-xl shadow-neo-sm flex items-center justify-center font-mono font-black text-sm lowercase text-slate-800 cursor-pointer hover:bg-amber-50 active:translate-y-px transition select-none"
-                            title={`点击发音: ${cleanSyllable}`}
+                            className="px-3.5 h-11 bg-white border-2 border-black rounded-xl shadow-neo-sm flex items-center justify-center font-mono font-black text-sm lowercase text-slate-800 select-none"
                           >
                             {cleanSyllable}
                           </div>
