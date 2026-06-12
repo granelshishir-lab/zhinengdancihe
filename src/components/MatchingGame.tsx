@@ -17,6 +17,7 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
   const [isFinished, setIsFinished] = useState(false);
   const [score, setScore] = useState(0);
   const [failFlashId, setFailFlashId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     startNewGame();
@@ -29,14 +30,17 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
     let pool = [...words];
     if (gameMode === 'image') {
       const wordsWithImages = pool.filter(w => w.svgCode || (w.imageType === 'upload' && w.imageUrl));
-      if (wordsWithImages.length >= 3) {
-        pool = wordsWithImages;
+      if (wordsWithImages.length < 3) {
+        // Switch back to meaning if there are not enough images
+        setGameMode('meaning');
+        return;
       }
+      pool = wordsWithImages;
     }
 
     const chosenWords = pool
       .sort(() => Math.random() - 0.5)
-      .slice(0, 4);
+      .slice(0, Math.min(4, pool.length));
 
     const matchType = gameMode === 'meaning' ? 'translation' : 'image';
 
@@ -151,10 +155,13 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
       </div>
 
       {/* Playful Neo-Brutalist Mode Switcher */}
-      <div className="flex justify-center items-center gap-2 mb-6 max-w-xs mx-auto bg-slate-100 p-1.5 rounded-2xl border-2 border-black shadow-neo-sm">
+      <div className="flex justify-center items-center gap-2 mb-2 max-w-xs mx-auto bg-slate-100 p-1.5 rounded-2xl border-2 border-black shadow-neo-sm">
         <button
-          onClick={() => setGameMode('meaning')}
-          className={`flex-1 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+          onClick={() => {
+            setGameMode('meaning');
+            setErrorMessage(null);
+          }}
+          className={`flex-1 py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
             gameMode === 'meaning'
               ? 'bg-[#FFD93D] border-2 border-black text-black shadow-neo-sm'
               : 'text-slate-600 hover:text-black hover:bg-slate-200/50'
@@ -163,7 +170,17 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
           词义对碰 🧩
         </button>
         <button
-          onClick={() => setGameMode('image')}
+          onClick={() => {
+            const hasImages = words.filter(w => w.svgCode || (w.imageType === 'upload' && w.imageUrl)).length >= 3;
+            if (hasImages) {
+              setGameMode('image');
+              setErrorMessage(null);
+            } else {
+              setErrorMessage("您的词箱中包含彩色插图的单词少于3个！请先使用AI生成带插图的单词噢 🎨");
+              playSpeech("Please add more pictured words first", { rate: 1.1 });
+              setTimeout(() => setErrorMessage(null), 6000);
+            }
+          }}
           className={`flex-1 py-1 px-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
             gameMode === 'image'
               ? 'bg-[#FFD93D] border-2 border-black text-black shadow-neo-sm'
@@ -173,6 +190,12 @@ export const MatchingGame: React.FC<MatchingGameProps> = ({ words, onAwardStars 
           词图对碰 🖼️
         </button>
       </div>
+
+      {errorMessage && (
+        <div className="text-rose-600 text-[11px] font-black bg-rose-50 border-2 border-rose-400 py-1.5 px-3 rounded-xl max-w-md mx-auto mb-4 animate-bounce">
+          ⚠️ {errorMessage}
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {isFinished ? (

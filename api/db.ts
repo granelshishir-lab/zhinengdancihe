@@ -45,6 +45,8 @@ export interface UserAccount {
   passwordPlain: string;
   activationKey: string;
   activated: boolean;
+  boundDeviceId?: string;
+  revoked?: boolean;
   words: any[];
   stars: number;
   wordBoxes: any[];

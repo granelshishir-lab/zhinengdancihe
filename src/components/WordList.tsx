@@ -655,9 +655,28 @@ export const WordList: React.FC<WordListProps> = ({
                     </button>
                   </div>
                   {/* Syllable Dots display */}
-                  <span className="text-xs font-black text-[#FF6B6B] font-mono tracking-wider bg-[#FFFBEB] px-2 py-0.5 rounded-md border-2 border-black inline-block mt-1">
-                    {word.syllables}
-                  </span>
+                  <div className="inline-flex flex-wrap items-center gap-1 mt-1 z-10">
+                    {word.syllables.split("•").map((syllable, sIdx, sArr) => {
+                      const cleanSyll = syllable.trim();
+                      return (
+                        <React.Fragment key={sIdx}>
+                          <span 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playSpeech(cleanSyll, { rate: 0.75 });
+                            }}
+                            className="text-xs font-black text-[#FF6B6B] font-mono tracking-wider bg-[#FFFBEB] hover:bg-[#FFE5E5] px-2 py-0.5 rounded-md border-2 border-black inline-block cursor-pointer active:translate-y-px transition select-none"
+                            title={`点击发音: ${cleanSyll}`}
+                          >
+                            {cleanSyll}
+                          </span>
+                          {sIdx < sArr.length - 1 && (
+                            <span className="text-xs font-black text-slate-400 select-none">•</span>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
                 </div>
                 
                 {/* State Progress Selector controller */}
@@ -1446,7 +1465,11 @@ export const WordList: React.FC<WordListProps> = ({
                             style={{ width: `${Math.max(4, cleanSyllable.length) * 11 + 22}px` }}
                           />
                         ) : (
-                          <div className="px-3.5 h-11 bg-white border-2 border-black rounded-xl shadow-neo-sm flex items-center justify-center font-mono font-black text-sm lowercase text-slate-800 select-none">
+                          <div 
+                            onClick={() => playSpeech(cleanSyllable, { rate: 0.75 })}
+                            className="px-3.5 h-11 bg-white border-2 border-black rounded-xl shadow-neo-sm flex items-center justify-center font-mono font-black text-sm lowercase text-slate-800 cursor-pointer hover:bg-amber-50 active:translate-y-px transition select-none"
+                            title={`点击发音: ${cleanSyllable}`}
+                          >
                             {cleanSyllable}
                           </div>
                         )}

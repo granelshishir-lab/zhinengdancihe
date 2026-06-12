@@ -204,6 +204,17 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
     }
   };
 
+  const handleIDontKnow = () => {
+    if (isAnswered) return;
+    setSelectedOption("我不会");
+    setIsAnswered(true);
+    playSpeech("Let's practice this word later", { rate: 1.0 });
+    // Add word index to wrong answers stash for rehearsal
+    if (!wrongQuestions.some((q) => q.wordId === currentQuestion.wordId)) {
+      setWrongQuestions((prev) => [...prev, currentQuestion]);
+    }
+  };
+
   const handleNext = () => {
     if (currentIndex + 1 < questions.length) {
       setCurrentIndex((prev) => prev + 1);
@@ -393,6 +404,27 @@ export const QuizGame: React.FC<QuizGameProps> = ({ words, onAwardStars }) => {
                 </button>
               );
             })}
+
+            {/* "I don't know" dynamic option card */}
+            {quizMode === 'cloze' && (
+              <button
+                key="dont-know"
+                onClick={handleIDontKnow}
+                disabled={isAnswered}
+                className={`w-full py-3.5 px-4 rounded-2xl flex items-center justify-between text-left transition font-display text-lg font-black select-none border-4 border-black cursor-pointer ${
+                  isAnswered 
+                    ? selectedOption === "我不会"
+                      ? "bg-amber-300 border-4 border-black text-black shadow-neo-sm cursor-default font-extrabold"
+                      : "bg-slate-100 border-4 border-black text-slate-400 opacity-50 cursor-default"
+                    : "bg-amber-100 border-4 border-black hover:bg-amber-200/80 text-black shadow-neo-sm hover:translate-y-0.5"
+                }`}
+              >
+                <span>我不会 🙋‍♂️</span>
+                {isAnswered && selectedOption === "我不会" && (
+                  <span className="text-xs font-black bg-[#FFFBEB] text-black px-2 py-0.5 rounded border border-black shadow-neo-sm">已收录错题</span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Next Button Animation */}

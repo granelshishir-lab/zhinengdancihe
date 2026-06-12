@@ -8,6 +8,16 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+// Path-normalization middleware for seamless local Express & Vercel Serverless Function routing compatibility
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith("/api")) {
+    const originalUrl = req.url;
+    req.url = "/api" + (originalUrl.startsWith("/") ? "" : "/") + originalUrl;
+    console.log(`[Route Normalizer] Rewrote URL path from "${originalUrl}" to "${req.url}" for compatibility`);
+  }
+  next();
+});
+
 // Helper function to check if device is allowed (Max 2 simultaneous devices active in last 10 minutes)
 export function verifyDeviceSession(user: UserAccount, deviceId: string): { allowed: boolean; activeCount: number } {
   const now = Date.now();
@@ -41,6 +51,81 @@ export function verifyDeviceSession(user: UserAccount, deviceId: string): { allo
 // -----------------------------------------------------------------
 // AUTHENTICATION ENDPOINTS
 // -----------------------------------------------------------------
+
+// Pure Card Key Verification & Activation Endpoint
+app.post("/api/auth/verify-key", async (req, res) => {
+  const { activationKey, deviceId } = req.body;
+
+  if (!activationKey || !deviceId) {
+    res.json({ success: false, message: "卡密与设备指纹编码均不能为空 🔑" });
+    return;
+  }
+
+  try {
+    const db = await loadDB();
+    const inputKey = activationKey.trim().toUpperCase();
+
+    // Scan users for a matching activationKey
+    const matchedUser = Object.values(db.users).find(
+      (u) => u.activationKey && u.activationKey.trim().toUpperCase() === inputKey
+    );
+
+    if (!matchedUser) {
+      res.json({ success: false, message: "卡密验证失败，请重新核对输入！🌿" });
+      return;
+    }
+
+    if (matchedUser.revoked) {
+      res.json({ success: false, message: "该卡密已被管理员作废，无法继续使用！🚫" });
+      return;
+    }
+
+    // Checking activation status
+    if (!matchedUser.activated) {
+      // First activation! Bind to current device
+      matchedUser.activated = true;
+      matchedUser.boundDeviceId = deviceId;
+      if (!matchedUser.lastActiveDates) {
+        matchedUser.lastActiveDates = {};
+      }
+      matchedUser.lastActiveDates[deviceId] = Date.now();
+
+      await saveDB(db);
+
+      res.json({
+        success: true,
+        activated: true,
+        message: "卡密首次激活认证成功！已成功绑定当前浏览器。🎒"
+      });
+      return;
+    }
+
+    // Already activated. Checking device binding matches
+    if (matchedUser.boundDeviceId === deviceId) {
+      if (!matchedUser.lastActiveDates) {
+        matchedUser.lastActiveDates = {};
+      }
+      matchedUser.lastActiveDates[deviceId] = Date.now();
+      await saveDB(db);
+
+      res.json({
+        success: true,
+        activated: true,
+        message: "验证通过，欢迎回来！✨"
+      });
+    } else {
+      // Device/browser mismatch with activated key
+      res.json({
+        success: false,
+        message: "卡密失效，该卡密已在其他设备或浏览器上激活！❌"
+      });
+    }
+
+  } catch (error) {
+    console.error("verify-key error:", error);
+    res.json({ success: false, message: "服务器超时，验证失败 🚫" });
+  }
+});
 
 // Login Endpoint
 app.post("/api/auth/login", async (req, res) => {
@@ -360,6 +445,41 @@ app.post("/api/admin/users", async (req, res) => {
     res.json({ success: true, users: Object.values(db.users) });
   } catch (error) {
     res.json({ success: false, message: "抓取用户列表失败" });
+  }
+});
+
+// Revoke or Restore Card Key
+app.post("/api/admin/revoke-key", async (req, res) => {
+  const { token, username, revoke } = req.body;
+
+  if (token !== "admin_session_token_approved_3f8ee70c") {
+    res.status(401).json({ success: false, message: "未授权的访问" });
+    return;
+  }
+
+  try {
+    const db = await loadDB();
+    const user = db.users[username];
+    if (!user) {
+      res.json({ success: false, message: "该用户账号未找到" });
+      return;
+    }
+
+    if (revoke) {
+      user.revoked = true;
+      user.activated = false;
+      user.boundDeviceId = undefined;
+    } else {
+      user.revoked = false;
+      user.activated = false; // Reset to unactivated status
+      user.boundDeviceId = undefined;
+    }
+
+    await saveDB(db);
+    res.json({ success: true, users: Object.values(db.users) });
+  } catch (error) {
+    console.error("Revoke error:", error);
+    res.json({ success: false, message: "作废操作失败，数据库异常" });
   }
 });
 

@@ -21,7 +21,8 @@ import {
   AlertTriangle,
   Monitor,
   CheckCircle2,
-  ListRestart
+  ListRestart,
+  Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -44,15 +45,12 @@ export default function App() {
   const [authError, setAuthError] = useState<string>("");
   const [successToast, setSuccessToast] = useState<string>("");
 
-  // Login credentials state
-  const [usernameInput, setUsernameInput] = useState<string>("");
-  const [passwordInput, setPasswordInput] = useState<string>("");
+  // Card Key credentials state
+  const [cardKeyInput, setCardKeyInput] = useState<string>("");
+  const [activeCardKey, setActiveCardKey] = useState<string>("");
 
-  // Account information when successfully logged in
-  const [currentUser, setCurrentUser] = useState<{ username: string; passwordPlain: string } | null>(null);
+  // Account activation status
   const [isActivated, setIsActivated] = useState<boolean>(false);
-  const [needsActivation, setNeedsActivation] = useState<boolean>(false);
-  const [activationCodeInput, setActivationCodeInput] = useState<string>("");
 
   // Admin section state
   const [adminToken, setAdminToken] = useState<string | null>(null);
@@ -66,6 +64,96 @@ export default function App() {
   const [generateCount, setGenerateCount] = useState<number>(10);
   const [generating, setGenerating] = useState<boolean>(false);
 
+  // Load words, stars, wordBoxes from localStorage
+  const initLocalProgress = () => {
+    // Words
+    const localWords = localStorage.getItem("children_wordbox_words");
+    if (localWords) {
+      try {
+        setWords(JSON.parse(localWords));
+      } catch (e) {
+        setWords(SEED_WORDS);
+      }
+    } else {
+      setWords(SEED_WORDS);
+      localStorage.setItem("children_wordbox_words", JSON.stringify(SEED_WORDS));
+    }
+
+    // Stars
+    const localStars = localStorage.getItem("children_wordbox_stars");
+    if (localStars) {
+      setStars(Number(localStars) || 20);
+    } else {
+      setStars(20);
+      localStorage.setItem("children_wordbox_stars", "20");
+    }
+
+    // Boxes
+    const localBoxes = localStorage.getItem("children_wordbox_boxes");
+    if (localBoxes) {
+      try {
+        setWordBoxes(JSON.parse(localBoxes));
+      } catch (e) {
+        setWordBoxes(BASE_BOXES);
+      }
+    } else {
+      setWordBoxes(BASE_BOXES);
+      localStorage.setItem("children_wordbox_boxes", JSON.stringify(BASE_BOXES));
+    }
+  };
+
+  // Synchronize helper (purely local storage now)
+  const saveLocalProgress = (currentWords: Word[], currentStars: number, currentBoxes: WordBox[]) => {
+    localStorage.setItem("children_wordbox_words", JSON.stringify(currentWords));
+    localStorage.setItem("children_wordbox_stars", String(currentStars));
+    localStorage.setItem("children_wordbox_boxes", JSON.stringify(currentBoxes));
+  };
+
+  // Pure card-key verification client
+  const triggerKeyVerification = async (key: string, currentDevId: string, isStartup = false) => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const response = await fetch("/api/auth/verify-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activationKey: key.trim().toUpperCase(),
+          deviceId: currentDevId
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem("children_wordbox_active_key", key.trim().toUpperCase());
+        setActiveCardKey(key.trim().toUpperCase());
+        setIsActivated(true);
+        initLocalProgress();
+        showToast(isStartup ? "成功读取激活状态，欢迎回来！✨" : "卡密激活成功，英语冒险之旅开启！🎒");
+      } else {
+        localStorage.removeItem("children_wordbox_active_key");
+        setIsActivated(false);
+        setAuthError(data.message || "您输入的卡密已被激活或已失效，请联系管理员！");
+      }
+    } catch (err) {
+      if (isStartup) {
+        // Safe offline use mode
+        const cachedKey = localStorage.getItem("children_wordbox_active_key");
+        if (cachedKey) {
+          setActiveCardKey(cachedKey);
+          setIsActivated(true);
+          initLocalProgress();
+          showToast("离线模式：已加载本地词库大冒险 ✨");
+        } else {
+          setAuthError("网路连接不佳，卡密校验失败，请重试！📶");
+        }
+      } else {
+        setAuthError("连接服务器超时，无法验证该卡密，请稍后再试！📶");
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   // Load hardware/browser device fingerprint
   useEffect(() => {
     let storedDeviceId = localStorage.getItem("children_wordbox_device_id");
@@ -75,55 +163,20 @@ export default function App() {
     }
     setDeviceId(storedDeviceId);
 
-    // Auto log in if session cached
-    const cachedUser = localStorage.getItem("children_wordbox_user");
-    if (cachedUser) {
-      try {
-        const parsed = JSON.parse(cachedUser);
-        if (parsed.username && parsed.password) {
-          triggerLogin(parsed.username, parsed.password, storedDeviceId);
-          return;
-        }
-      } catch (e) {
-        localStorage.removeItem("children_wordbox_user");
-      }
+    // Read stored key
+    const cachedKey = localStorage.getItem("children_wordbox_active_key");
+    if (cachedKey) {
+      triggerKeyVerification(cachedKey, storedDeviceId, true);
+    } else {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   }, []);
-
-  // Heartbeat loop to assert concurrent devices <= 2
-  useEffect(() => {
-    if (!currentUser || !isActivated) return;
-
-    const interval = setInterval(() => {
-      fetch("/api/auth/heartbeat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: currentUser.username,
-          password: currentUser.passwordPlain,
-          deviceId
-        })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.success === false && data.code === "device_limit_exceeded") {
-            // Lower limit flag triggered! Force logout with block notification
-            handleExplicitLogout("由于您的账号已在其他 2 台设备同时登录，本设备已被迫下线。🚫");
-          }
-        })
-        .catch(err => console.error("Heartbeat sync error:", err));
-    }, 20000); // Verify state every 20 seconds
-
-    return () => clearInterval(interval);
-  }, [currentUser, isActivated, deviceId]);
 
   // Handle explicit automatic or manual logout
   const handleExplicitLogout = (msg?: string) => {
-    localStorage.removeItem("children_wordbox_user");
-    setCurrentUser(null);
+    localStorage.removeItem("children_wordbox_active_key");
+    setActiveCardKey("");
     setIsActivated(false);
-    setNeedsActivation(false);
     if (msg) {
       setAuthError(msg);
     } else {
@@ -139,166 +192,48 @@ export default function App() {
     }, 2800);
   };
 
-  // Login handler
-  const triggerLogin = async (username: string, pass: string, currentDevId: string) => {
-    setAuthLoading(true);
-    setAuthError("");
-    try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: username.trim().toLowerCase(),
-          password: pass.trim(),
-          deviceId: currentDevId
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        const credentialsObj = { username: username.trim(), password: pass.trim() };
-        setCurrentUser({ username: username.trim(), passwordPlain: pass.trim() });
-        
-        if (data.needsActivation) {
-          setNeedsActivation(true);
-          setIsActivated(false);
-        } else {
-          // Account fully open and correct
-          localStorage.setItem("children_wordbox_user", JSON.stringify(credentialsObj));
-          setIsActivated(true);
-          setNeedsActivation(false);
-          
-          // Seed default words if child's sync data is fully blank
-          let userWords = data.words || [];
-          if (userWords.length === 0) {
-            userWords = SEED_WORDS.map(w => {
-              let boxId = "box-default";
-              if (w.id === "seed-apple" || w.id === "seed-banana") {
-                boxId = "box-[#FFF1F2]"; //美味水果
-              } else if (w.id === "seed-elephant") {
-                boxId = "box-animals";
-              } else if (w.id === "seed-robot" || w.id === "seed-rainbow") {
-                boxId = "box-daily";
-              }
-              return { ...w, boxId };
-            });
-            // Instantly trigger an initial remote storage backup save 
-            syncWithCloud(userWords, data.stars !== undefined ? data.stars : 20, data.wordBoxes || BASE_BOXES, credentialsObj);
-          }
-          
-          setWords(userWords);
-          setStars(data.stars !== undefined ? data.stars : 20);
-          setWordBoxes(data.wordBoxes && data.wordBoxes.length > 0 ? data.wordBoxes : BASE_BOXES);
-          showToast("欢迎进入英语单词大冒险词盒！✨");
-        }
-      } else {
-        setAuthError(data.message || "登录校验失败");
-      }
-    } catch (err) {
-      setAuthError("连接云端账户服务器失败，请检查网络后再试！📶");
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Submit button on login form
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!usernameInput.trim() || !passwordInput.trim()) {
-      setAuthError("账号和密码均不能为空 🦁");
-      return;
-    }
-    triggerLogin(usernameInput, passwordInput, deviceId);
-  };
-
-  // Submit activation code
-  const handleActivateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUser) return;
-    if (!activationCodeInput.trim()) {
-      setAuthError("请输入合法的专属永久卡密 💮");
+  // Export words backup structure downloader (.txt format)
+  const handleExportWordsTxt = () => {
+    if (words.length === 0) {
+      alert("当前没有可导出的单词！🌸");
       return;
     }
 
-    setAuthLoading(true);
-    setAuthError("");
-    try {
-      const response = await fetch("/api/auth/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: currentUser.username,
-          password: currentUser.passwordPlain,
-          activationKey: activationCodeInput.trim().toUpperCase(),
-          deviceId
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        localStorage.setItem("children_wordbox_user", JSON.stringify({
-          username: currentUser.username,
-          password: currentUser.passwordPlain
-        }));
+    let resultTxt = "";
 
-        setIsActivated(true);
-        setNeedsActivation(false);
-        
-        // Populate standard kids seeds initially
-        const userWords = SEED_WORDS.map(w => {
-          let boxId = "box-default";
-          if (w.id === "seed-apple" || w.id === "seed-banana") {
-            boxId = "box-fruits";
-          } else if (w.id === "seed-elephant") {
-            boxId = "box-animals";
-          } else if (w.id === "seed-robot" || w.id === "seed-rainbow") {
-            boxId = "box-daily";
-          }
-          return { ...w, boxId };
-        });
-
-        setWords(userWords);
-        setStars(20);
-        setWordBoxes(BASE_BOXES);
-
-        // Sync fresh configuration back to cloud database
-        await syncWithCloud(userWords, 20, BASE_BOXES, {
-          username: currentUser.username,
-          password: currentUser.passwordPlain
-        });
-
-        showToast("卡密激活绑定成功！探险乐园已全部为您开启 🎒");
-      } else {
-        setAuthError(data.message || "激活绑定失败，请重新核对您的卡密");
+    // Group words by boxId and print according to strict schema
+    wordBoxes.forEach((box) => {
+      const boxWords = words.filter(w => w.boxId === box.id || (box.id === "box-default" && !w.boxId));
+      if (boxWords.length > 0) {
+        const wordsStr = boxWords.map(w => w.word.trim()).join(",");
+        resultTxt += `【${box.icon} ${box.name}】\n`;
+        resultTxt += `${wordsStr}\n\n`;
       }
-    } catch (err) {
-      setAuthError("网路连接超时，无法激活，请重试！📶");
-    } finally {
-      setAuthLoading(false);
-    }
-  };
+    });
 
-  // Sync to Cloud DB
-  const syncWithCloud = async (currentWords: Word[], currentStars: number, currentBoxes: WordBox[], userContext = currentUser) => {
-    if (!userContext) return;
-    try {
-      const res = await fetch("/api/word/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: userContext.username,
-          password: userContext.passwordPlain || (userContext as any).password,
-          words: currentWords,
-          stars: currentStars,
-          wordBoxes: currentBoxes,
-          deviceId
-        })
-      });
-      const data = await res.json();
-      if (data && data.success === false && data.code === "device_limit_exceeded") {
-        handleExplicitLogout("当前账号已在多台其他设备登录，本设备被迫下线，数据无法继续保存。🚫");
-      }
-    } catch (e) {
-      console.error("Cloud synchronizer backup sync failed:", e);
+    // Handle any orphaned categories
+    const boxIds = wordBoxes.map(b => b.id);
+    const orphanWords = words.filter(w => w.boxId && !boxIds.includes(w.boxId));
+    if (orphanWords.length > 0) {
+      const orphanStr = orphanWords.map(w => w.word.trim()).join(",");
+      resultTxt += `【🎒 未分类/其他单词】\n`;
+      resultTxt += `${orphanStr}\n\n`;
     }
+
+    // Trim trailing newlines
+    resultTxt = resultTxt.trim();
+
+    // Spawn a direct browser blob streaming download
+    const blob = new Blob([resultTxt], { type: "text/plain;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `冒险词盒备份_${new Date().toISOString().substring(0, 10)}.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast("卡片备份：单词已成功导出为纯文本文件！📝");
   };
 
   // UI state-altering word additions
@@ -307,7 +242,7 @@ export default function App() {
     setWords(updated);
     const updatedStars = stars + 5; // 5 stars for custom additions
     setStars(updatedStars);
-    syncWithCloud(updated, updatedStars, wordBoxes);
+    saveLocalProgress(updated, updatedStars, wordBoxes);
     showToast("添加自定义卡片，额外获得 5 颗能量小星星！🍪");
   };
 
@@ -322,20 +257,20 @@ export default function App() {
     setWords(updated);
     const updatedStars = stars + (5 * filteredNew.length);
     setStars(updatedStars);
-    syncWithCloud(updated, updatedStars, wordBoxes);
+    saveLocalProgress(updated, updatedStars, wordBoxes);
     showToast(`批量获取生动词汇，获得 ${5 * filteredNew.length} 颗闪耀能量星！🌟`);
   };
 
   const handleEditWord = (wordId: string, updatedFields: Partial<Word>) => {
     const updated = words.map(w => w.id === wordId ? { ...w, ...updatedFields } : w);
     setWords(updated);
-    syncWithCloud(updated, stars, wordBoxes);
+    saveLocalProgress(updated, stars, wordBoxes);
   };
 
   const handleDeleteWord = (wordId: string) => {
     const updated = words.filter(w => w.id !== wordId);
     setWords(updated);
-    syncWithCloud(updated, stars, wordBoxes);
+    saveLocalProgress(updated, stars, wordBoxes);
     showToast("成功移除该单词。✨");
   };
 
@@ -344,7 +279,7 @@ export default function App() {
     setWordBoxes(updatedBoxes);
     const updatedStars = stars + 10; // Extra star reward
     setStars(updatedStars);
-    syncWithCloud(words, updatedStars, updatedBoxes);
+    saveLocalProgress(words, updatedStars, updatedBoxes);
     showToast("成功装载全新词箱，获得 10 颗能量星！🦁");
   };
 
@@ -355,7 +290,7 @@ export default function App() {
     // Move orphaned words back to defaults
     const updatedWords = words.map(w => w.boxId === boxId ? { ...w, boxId: "box-default" } : w);
     setWords(updatedWords);
-    syncWithCloud(updatedWords, stars, updatedBoxes);
+    saveLocalProgress(updatedWords, stars, updatedBoxes);
   };
 
   const handleToggleProgress = (wordId: string) => {
@@ -363,10 +298,10 @@ export default function App() {
     const updated = words.map(w => {
       if (w.id === wordId) {
         const next = w.progress === 'mastered' ? 'learning' : 'mastered';
-        if (next === 'mastered') {
-          earnedAdd = 15; // 15 stars for mastery
-        }
-        return { ...w, progress: next };
+         if (next === 'mastered') {
+           earnedAdd = 15; // 15 stars for mastery
+         }
+         return { ...w, progress: next };
       }
       return w;
     });
@@ -375,7 +310,7 @@ export default function App() {
     if (earnedAdd > 0) {
       setStars(updatedStars);
     }
-    syncWithCloud(updated, updatedStars, wordBoxes);
+    saveLocalProgress(updated, updatedStars, wordBoxes);
     if (earnedAdd > 0) {
       showToast("棒极了！您又学会了一个单词，获得 15 颗星星奖励！💮");
     }
@@ -384,7 +319,7 @@ export default function App() {
   const handleAwardStars = (count: number) => {
     const updatedStars = stars + count;
     setStars(updatedStars);
-    syncWithCloud(words, updatedStars, wordBoxes);
+    saveLocalProgress(words, updatedStars, wordBoxes);
     showToast(`哇！完成趣味大练习，小勇士收获了 ${count} 颗星星！🍭`);
   };
 
@@ -515,6 +450,30 @@ export default function App() {
   const copyRow = (row: any) => {
     const t = `账号: ${row.username}  密码: ${row.passwordPlain}  卡密: ${row.activationKey}`;
     copyTextToClipboard(t, "卡片信息复制成功！");
+  };
+
+  const handleRevokeKey = async (username: string, revoke: boolean) => {
+    if (!adminToken) return;
+    try {
+      const res = await fetch("/api/admin/revoke-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: adminToken,
+          username,
+          revoke
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminUsers(data.users);
+        showToast(revoke ? "该卡密已成功作废，不可继续激活绑定！🚫" : "已成功恢复该卡密为可用状态！❇️");
+      } else {
+        showToast(data.message || "操作失败，请重试！");
+      }
+    } catch (e) {
+      showToast("网络请求超时，无法提交作废操作。📶");
+    }
   };
 
 
@@ -806,31 +765,47 @@ export default function App() {
                         </div>
 
                         <div className="flex justify-between items-center w-full md:w-auto shrink-0 pt-2 border-t border-dashed border-slate-200 md:pt-0 md:border-0 md:flex-col md:gap-2">
-                          <span className={`px-2 py-0.5 text-[10px] font-black rounded border flex items-center gap-1 shrink-0 ${
-                            user.activated 
-                              ? "bg-slate-100 text-slate-400 border-slate-300"
-                              : "bg-emerald-50 text-emerald-600 border-emerald-300"
-                          }`}>
-                            {user.activated ? (
-                              <>
-                                <CheckCircle2 className="w-3 h-3 text-slate-400" />
-                                <span>已使用</span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                                <span>未使用</span>
-                              </>
-                            )}
-                          </span>
+                          {user.revoked ? (
+                            <span className="px-2 py-0.5 text-[10px] font-black rounded border flex items-center gap-1 bg-slate-200 text-slate-500 border-slate-400">
+                              <span>🚫 已作废</span>
+                            </span>
+                          ) : user.activated ? (
+                            <span className="px-2 py-0.5 text-[10px] font-black rounded border flex items-center gap-1 bg-blue-50 text-blue-600 border-blue-400">
+                              <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                              <span>已激活</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[10px] font-black rounded border flex items-center gap-1 bg-emerald-50 text-emerald-600 border-emerald-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                              <span>未激活</span>
+                            </span>
+                          )}
 
-                          <button
-                            onClick={() => copyRow(user)}
-                            className="px-2 py-1 bg-[#6BCB77] hover:bg-[#59b865] text-white text-[10px] font-black border-2 border-black rounded-lg flex items-center gap-1 shadow-[1.5px_1.5px_0px_0px_#000] cursor-pointer active:translate-y-px"
-                          >
-                            <Copy className="w-3 h-3" />
-                            <span>复制</span>
-                          </button>
+                          <div className="flex gap-2 md:flex-col md:w-full">
+                            <button
+                              onClick={() => copyRow(user)}
+                              className="px-2 py-1 bg-[#6BCB77] hover:bg-[#59b865] text-white text-[10px] font-black border-2 border-black rounded-lg flex items-center gap-1 shadow-[1.5px_1.5px_0px_0px_#000] cursor-pointer active:translate-y-px"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>复制</span>
+                            </button>
+
+                            {user.revoked ? (
+                              <button
+                                onClick={() => handleRevokeKey(user.username, false)}
+                                className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-[10px] font-black border-2 border-black rounded-lg flex items-center gap-1 shadow-[1.5px_1.5px_0px_0px_#000] cursor-pointer active:translate-y-px"
+                              >
+                                <span>激活卡密</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRevokeKey(user.username, true)}
+                                className="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-600 text-[10px] font-black border-2 border-black rounded-lg flex items-center gap-1 shadow-[1.5px_1.5px_0px_0px_#000] cursor-pointer active:translate-y-px"
+                              >
+                                <span>作废卡密</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -859,181 +834,98 @@ export default function App() {
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#FFD93D]/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#FF6B6B]/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* ACCOUNT + PASSWORD LOGIN CARD */}
-        {!needsActivation ? (
-          <div className="bg-white border-4 border-black p-6 sm:p-8 rounded-[36px] shadow-neo max-w-md w-full relative z-10 transition">
-            
-            <div className="w-16 h-16 bg-[#FF6B6B] text-white border-2 border-black rounded-2xl flex items-center justify-center text-3xl shadow-neo-sm mx-auto mb-5 transform hover:rotate-6 transition">
-              🎒
-            </div>
-            
-            <h1 className="text-xl sm:text-2xl font-black mb-1.5 text-center text-black tracking-tight style-normal">
-              单词乐园 · 冒险起航
-            </h1>
-            <p className="text-slate-500 font-bold text-xs text-center mb-6">
-              各位单词小探险家，输入您的专属账号密码进入词箱
-            </p>
+        <div className="bg-white border-4 border-black p-6 sm:p-8 rounded-[36px] shadow-neo max-w-md w-full relative z-10 transition">
+          <div className="w-16 h-16 bg-[#FF6B6B] text-white border-2 border-black rounded-2xl flex items-center justify-center text-3xl shadow-neo-sm mx-auto mb-5 transform hover:rotate-6 transition">
+            🎒
+          </div>
+          
+          <h1 className="text-xl sm:text-2xl font-black mb-1.5 text-center text-black tracking-tight">
+            单词乐园 · 冒险起航
+          </h1>
+          <p className="text-slate-500 font-bold text-xs text-center mb-6">
+            每一位单词小探险家，输入您的专属永久卡密即可解锁词盒
+          </p>
 
-            <form onSubmit={handleLoginSubmit} className="space-y-4">
-              <div className="space-y-1.5 text-left">
-                <label className="text-xs font-black text-slate-600 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5" />
-                  <span>分发账号 (Username)</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={usernameInput}
-                  onChange={(e) => {
-                    setUsernameInput(e.target.value);
-                    setAuthError("");
-                  }}
-                  placeholder="请输入您的账号, 如 kid_a5e9x"
-                  className="w-full px-4 py-2.5 bg-[#FFFBEB] border-4 border-black rounded-2xl font-mono text-xs sm:text-sm text-black focus:outline-none focus:ring-0 placeholder-slate-400 text-left cursor-text"
-                />
-              </div>
-
-              <div className="space-y-1.5 text-left">
-                <label className="text-xs font-black text-slate-600 flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>分发密码 (Password)</span>
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={passwordInput}
-                  onChange={(e) => {
-                    setPasswordInput(e.target.value);
-                    setAuthError("");
-                  }}
-                  placeholder="请输入 6 位登录密码"
-                  className="w-full px-4 py-2.5 bg-[#FFFBEB] border-4 border-black rounded-2xl font-mono text-xs sm:text-sm text-black focus:outline-none focus:ring-0 placeholder-slate-400 text-left cursor-text"
-                />
-              </div>
-
-              {authError && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-3 bg-rose-50 border-2 border-rose-400 text-rose-600 rounded-xl text-xs font-black text-left flex items-start gap-1"
-                >
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{authError}</span>
-                </motion.div>
-              )}
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-3.5 bg-[#6BCB77] hover:bg-[#59b865] text-white font-black text-sm rounded-2xl border-4 border-black shadow-neo-sm hover:translate-y-0.5 active:translate-y-1 transition duration-150 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {authLoading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>安全验证中...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>登录我的专属词盒 🚀</span>
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Quick entry for Admin Login */}
-            <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200 text-center">
-              <button
-                onClick={() => {
-                  setShowAdminEntry(true);
-                  setAdminError("");
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!cardKeyInput.trim()) {
+                setAuthError("请输入合法的专属永久卡密 💮");
+                return;
+              }
+              triggerKeyVerification(cardKeyInput, deviceId, false);
+            }} 
+            className="space-y-4"
+          >
+            <div className="space-y-1.5 text-left">
+              <label className="text-xs font-black text-slate-600 flex items-center gap-1">
+                <Key className="w-3.5 h-3.5" />
+                <span>专属永久卡密</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={cardKeyInput}
+                onChange={(e) => {
+                  setCardKeyInput(e.target.value.toUpperCase());
+                  setAuthError("");
                 }}
-                className="text-xs font-black text-indigo-500 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                placeholder="KID-XXXX-XXXX"
+                className="w-full px-4 py-3 bg-[#FFFBEB] border-4 border-black rounded-2xl font-mono text-sm text-center text-black font-black uppercase tracking-wider focus:outline-none focus:ring-0 placeholder-slate-400 cursor-text animate-pulse-once"
+              />
+            </div>
+
+            {authError && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-3 bg-rose-50 border-2 border-rose-400 text-rose-600 rounded-xl text-xs font-black text-left flex items-start gap-1"
               >
-                <Lock className="w-3 h-3" />
-                <span>管理员后台入口</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* FIRST TIME ACTIVATION CARD */
-          <div className="bg-white border-4 border-black p-6 sm:p-8 rounded-[36px] shadow-neo max-w-md w-full relative z-10 transition">
-            <div className="w-16 h-16 bg-[#FFD93D] text-black border-2 border-black rounded-2xl flex items-center justify-center text-3xl shadow-neo-sm mx-auto mb-5 transform hover:-rotate-6 transition">
-              🔑
-            </div>
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
+              </motion.div>
+            )}
 
-            <h1 className="text-xl sm:text-2xl font-black mb-1.5 text-center text-black tracking-tight">
-              首次登录 · 激活绑定
-            </h1>
-            <p className="text-slate-500 font-bold text-xs text-center mb-6">
-              探险家 <span className="text-indigo-600 font-black">@{currentUser?.username}</span>，请输入本账号绑定的专属激活码以永久激活该账号：
-            </p>
-
-            <form onSubmit={handleActivateSubmit} className="space-y-4">
-              <div className="space-y-1.5 text-left">
-                <label className="text-xs font-black text-slate-600 flex items-center gap-1">
-                  <Key className="w-3.5 h-3.5" />
-                  <span>专属永久激活卡密</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={activationCodeInput}
-                  onChange={(e) => {
-                    setActivationCodeInput(e.target.value.toUpperCase());
-                    setAuthError("");
-                  }}
-                  placeholder="KID-XXXX-XXXX"
-                  className="w-full px-4 py-3 bg-[#FFFBEB] border-4 border-black rounded-2xl font-mono text-sm text-center text-black font-black uppercase tracking-wider focus:outline-none focus:ring-0 placeholder-slate-400 cursor-text"
-                />
-              </div>
-
-              {authError && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-3 bg-rose-50 border-2 border-rose-400 text-rose-600 rounded-xl text-xs font-black text-left flex items-start gap-1"
-                >
-                  <AlertTriangle className="w-4 h-4 shrink-0" />
-                  <span>{authError}</span>
-                </motion.div>
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full py-3.5 bg-[#6BCB77] hover:bg-[#59b865] text-white font-black text-sm rounded-2xl border-4 border-black shadow-neo-sm hover:translate-y-0.5 active:translate-y-1 transition duration-150 cursor-pointer flex items-center justify-center gap-2"
+            >
+              {authLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>正在验证中...</span>
+                </>
+              ) : (
+                <span>【验证进入】 🚀</span>
               )}
+            </button>
+          </form>
 
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-3.5 bg-indigo-500 hover:bg-indigo-600 text-white font-black text-sm rounded-2xl border-4 border-black shadow-neo-sm hover:translate-y-0.5 active:translate-y-1 transition duration-150 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {authLoading ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>正在激活绑定中...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>立即认证并激活该账户 ✨</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setNeedsActivation(false)}
-                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border-2 border-black cursor-pointer"
-              >
-                返回账户登录
-              </button>
-            </form>
-
-            {/* Guideline reminder inside activation card */}
-            <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
-              <h4 className="text-xs font-black text-slate-800 text-left">💡 注意卡密激活规则：</h4>
-              <ul className="text-[11px] text-slate-500 text-left mt-1.5 space-y-1.5 font-bold list-disc list-inside leading-normal">
-                <li><strong className="text-slate-700">账号激活：</strong>激活码仅需在您的账号首次登录时绑定一次，之后登录该账号只需账号+密码直登，永久有效。</li>
-                <li><strong className="text-slate-700">双设备限制：</strong>单个账号最大允许 <span className="text-emerald-500 font-extrabold">2</span> 台设备同时在线，超额时第三台登录的设备将触发限制！</li>
-              </ul>
-            </div>
+          {/* Guideline reminder (Rule 4) */}
+          <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200">
+            <h4 className="text-xs font-black text-slate-800 text-left">💡 注意卡密激活规则：</h4>
+            <ul className="text-[11px] text-slate-500 text-left mt-1.5 space-y-1.5 font-bold list-disc list-inside leading-normal">
+              <li>卡密仅可激活一次，永久使用，绑定当前设备或浏览器。</li>
+              <li>本机不换设备/浏览器、不清缓存可永久正常使用，无需重复输卡密。</li>
+              <li>更换设备请先导出备份。在新设备下使用需要输入有效卡密重新激活绑定。</li>
+            </ul>
           </div>
-        )}
+
+          {/* Quick entry for Admin Login */}
+          <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-200 text-center">
+            <button
+              onClick={() => {
+                setShowAdminEntry(true);
+                setAdminError("");
+              }}
+              className="text-xs font-black text-indigo-500 hover:text-indigo-600 flex items-center justify-center gap-1 mx-auto cursor-pointer"
+            >
+              <Lock className="w-3 h-3" />
+              <span>管理员后台入口</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1053,20 +945,31 @@ export default function App() {
           <div className="flex items-center gap-1.5">
             <span className="text-lg">👋</span>
             <div className="flex flex-col text-left">
-              <span className="text-xs font-black text-slate-800">小探险家：</span>
-              <span className="text-[10px] sm:text-xs font-bold text-slate-500 leading-none">
-                @{currentUser?.username} (永久有效账户)
+              <span className="text-xs font-black text-slate-800">小探险家</span>
+              <span className="text-[10px] sm:text-xs font-mono font-bold text-[#FF6B6B] leading-none">
+                卡密: {activeCardKey ? `${activeCardKey.slice(0, 8)}...` : "已激活设备"}
               </span>
             </div>
           </div>
           
-          <button
-            onClick={() => handleExplicitLogout()}
-            className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-600 font-black text-xs border-2 border-black rounded-xl shadow-[2px_2px_0px_0px_#000] flex items-center gap-1 cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>退出登录</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportWordsTxt}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-extrabold text-xs border-2 border-black rounded-xl shadow-[2px_2px_0px_0px_#000] flex items-center gap-1 cursor-pointer active:translate-y-px"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">导出单词备份</span>
+              <span className="sm:hidden">导出</span>
+            </button>
+
+            <button
+              onClick={() => handleExplicitLogout()}
+              className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-600 font-black text-xs border-2 border-black rounded-xl shadow-[2px_2px_0px_0px_#000] flex items-center gap-1 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>退出状态</span>
+            </button>
+          </div>
         </div>
       </div>
 
