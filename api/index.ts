@@ -547,7 +547,7 @@ app.post("/api/word/analyze", async (req, res) => {
   try {
     const prompt = `You are a friendly, experienced English teacher for elementary school children. Organize the English word: "${cleanWord}".
 1. Segment it into syllables using dots (•) as syllable separators. (e.g. apple is "ap•ple", elephant is "e•le•phant", orange is "or•ange").
-2. Provide a simple, clear Chinese translation suitable for children.
+2. Provide simple, clear Chinese translation(s) suitable for children. If the word has multiple distinct major meanings (一词多义), please output up to 3 meanings separated by semicolons (e.g. "看；手表" or "滑行；跑" or "曲奇；饼干").
 3. Write a child-friendly, elementary-level simplified English definition.
 4. Construct an engaging, vivid example sentence using this word. Keep it simple and easy for children to understand.
 5. Create a colorful, cute cartoon vector illustration of this word in raw vector SVG format. Ensure it meets these constraints:
@@ -566,7 +566,7 @@ app.post("/api/word/analyze", async (req, res) => {
           type: Type.OBJECT,
           properties: {
             syllables: { type: Type.STRING, description: "Word with syllables separated by dots (e.g. com•pu•ter)" },
-            translation: { type: Type.STRING, description: "Chinese translation suited for kids (e.g. 电脑)" },
+            translation: { type: Type.STRING, description: "Chinese translations suited for kids. Separated by semicolons if there are multiple major definitions (e.g. 看；手表)" },
             definition: { type: Type.STRING, description: "Simple kid-friendly English definition" },
             example: { type: Type.STRING, description: "vivid child-friendly example sentence" },
             svgIllustration: { type: Type.STRING, description: "Responsive inline raw <svg>...</svg> vector code depicting the word's situation" }

@@ -72,6 +72,25 @@ export const WordList: React.FC<WordListProps> = ({
   // Detailed Card zoom-up modal state
   const [activeZoomWord, setActiveZoomWord] = useState<Word | null>(null);
   const [zoomImage, setZoomImage] = useState<{ type: 'svg' | 'url'; value: string } | null>(null);
+  const [revealedTranslationIds, setRevealedTranslationIds] = useState<Record<string, boolean>>({});
+  const [zoomTranslationRevealed, setZoomTranslationRevealed] = useState(false);
+
+  // Helper to split translations by semicolons, commas, dots, slashes supporting polysemy
+  const getTranslationsArray = (translationStr: string): string[] => {
+    if (!translationStr) return [];
+    return translationStr
+      .split(/[;；,，、|/]+/g)
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+  };
+
+  const toggleReveal = (wordId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRevealedTranslationIds(prev => ({
+      ...prev,
+      [wordId]: !prev[wordId]
+    }));
+  };
 
   // Syllable spelling exercise states
   const [spellingDifficulty, setSpellingDifficulty] = useState<'all' | 'tricky'>('tricky');
@@ -148,6 +167,7 @@ export const WordList: React.FC<WordListProps> = ({
   // Syllable spelling interactive challenge handlers
   const handleOpenZoomWord = (word: Word) => {
     setActiveZoomWord(word);
+    setZoomTranslationRevealed(false);
     
     const sylls = word.syllables.split("•").map(s => s.trim().toLowerCase());
     
@@ -718,11 +738,35 @@ export const WordList: React.FC<WordListProps> = ({
                 </div>
 
                 <div className="flex-1 flex flex-col justify-center select-none text-left min-h-[80px]">
-                  <div className="flex items-center gap-1 text-black font-black mb-1">
-                    <Languages className="w-4 h-4 text-[#FF6B6B] stroke-[2.5px]" />
-                    <span className="text-base font-black font-display">{word.translation}</span>
-                  </div>
-                  <div className="flex items-start gap-0.5 group">
+                  {revealedTranslationIds[word.id] ? (
+                    <div 
+                      onClick={(e) => toggleReveal(word.id, e)}
+                      className="flex flex-col gap-1 cursor-pointer w-full"
+                      title="点击隐藏"
+                    >
+                      <div className="flex items-center gap-1 text-black font-black mb-1">
+                        <Languages className="w-4 h-4 text-[#FF6B6B] stroke-[2.5px]" />
+                        <span className="text-[10px] text-slate-400 font-bold">(点击隐藏)</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-w-full">
+                        {getTranslationsArray(word.translation).map((t, idx) => (
+                          <span key={idx} className="px-2 py-0.5 bg-[#FFD93D] text-black border-2 border-black rounded-lg text-xs font-black shadow-neo-sm">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      onClick={(e) => toggleReveal(word.id, e)}
+                      className="flex items-center gap-1.5 p-1.5 bg-[#FEF2F2]/60 hover:bg-[#FEF2F2] border-2 border-slate-300 hover:border-black border-dashed rounded-xl cursor-pointer select-none transition"
+                      title="点击显示中文释义"
+                    >
+                      <Languages className="w-4 h-4 text-[#FF6B6B] stroke-[2.5px]" />
+                      <span className="text-xs font-black text-slate-600">点击显示中译 👁️</span>
+                    </div>
+                  )}
+                  <div className="flex items-start gap-0.5 group mt-2">
                     <button 
                       onClick={(e) => handleSpeak(word.definition, e)}
                       className="p-1 text-black hover:text-[#4D96FF] transition shrink-0 cursor-pointer"
@@ -1356,11 +1400,27 @@ export const WordList: React.FC<WordListProps> = ({
                 <div className="bg-sky-50 rounded-2xl p-5 border-2 border-black flex flex-col justify-between shadow-neo-sm text-left font-sans">
                   <div className="space-y-3.5 select-none font-bold">
                     <div>
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">中译解释 Translation</span>
-                      <div className="flex items-center gap-1.5 text-black">
-                        <Languages className="w-5 h-5 text-[#FF6B6B]" />
-                        <span className="text-xl font-black font-display text-slate-900">{activeZoomWord.translation}</span>
-                      </div>
+                      <span className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">中译解释 Translation (点击可切换隐藏/显示)</span>
+                      {zoomTranslationRevealed ? (
+                        <div 
+                          onClick={() => setZoomTranslationRevealed(false)}
+                          className="flex flex-wrap gap-1.5 cursor-pointer py-1"
+                        >
+                          {getTranslationsArray(activeZoomWord.translation).map((t, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-[#FFD93D] text-black border-2 border-black rounded-xl text-sm font-black shadow-neo-sm">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div 
+                          onClick={() => setZoomTranslationRevealed(true)}
+                          className="flex items-center gap-1.5 p-2 bg-[#FEF2F2]/60 hover:bg-[#FEF2F2] border-2 border-slate-300 hover:border-black border-dashed rounded-xl cursor-pointer select-none transition"
+                        >
+                          <Languages className="w-4 h-4 text-[#FF6B6B] stroke-[2.5px]" />
+                          <span className="text-xs font-black text-slate-600">点击显示中译 👁️</span>
+                        </div>
+                      )}
                     </div>
 
                     <div>
