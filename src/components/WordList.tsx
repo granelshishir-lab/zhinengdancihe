@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Word, WordBox } from "../types";
 import { playSpeech } from "../utils/audio";
+import { compressImage, CompressedImageResult } from "../utils/imageCompressor";
 import { 
   Plus, 
   Upload, 
@@ -137,30 +138,101 @@ export const WordList: React.FC<WordListProps> = ({
     playSpeech(text, { rate: 0.9 });
   };
 
+  // Batch compressed images state
+  const [batchCompressedImages, setBatchCompressedImages] = useState<CompressedImageResult[]>([]);
+  const [isCompressing, setIsCompressing] = useState(false);
+
+  // Helper to batch process and compress drag-and-drop or select files
+  const processFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setIsCompressing(true);
+    setFormError(null);
+    
+    try {
+      const results: CompressedImageResult[] = [];
+      const fileArray = Array.from(files);
+      
+      // Compress in parallel for speed
+      await Promise.all(
+        fileArray.map(async (file) => {
+          if (!file.type.match(/image\/(jpeg|jpg|png|webp)/i)) {
+            return;
+          }
+          try {
+            const result = await compressImage(file);
+            // If the user has already typed a word, prioritize associating that typed word
+            if (newWord.trim()) {
+              result.wordSuggested = newWord.trim();
+            }
+            results.push(result);
+          } catch (compressErr) {
+            console.error("Failed to compress file: " + file.name, compressErr);
+          }
+        })
+      );
+
+      if (results.length === 0) {
+        setFormError("未识别到有效的图片格式（仅支持 JPG、PNG、WebP 图片）。🌿");
+        return;
+      }
+
+      setBatchCompressedImages(prev => [...prev, ...results]);
+      
+      // Set the first one's preview to support backward compatibility
+      if (results.length > 0) {
+        setUploadedImageBase64(results[0].base64);
+        setImageType('upload');
+      }
+    } catch (err: any) {
+      setFormError("图片处理及自动压缩过程中发生故障，请重试！");
+    } finally {
+      setIsCompressing(false);
+    }
+  };
+
+  const handleUpdateBatchWord = (idx: number, newVal: string) => {
+    setBatchCompressedImages(prev => {
+      const copy = [...prev];
+      copy[idx] = {
+        ...copy[idx],
+        wordSuggested: newVal
+      };
+      return copy;
+    });
+  };
+
+  const handleUpdateBatchTranslation = (idx: number, newVal: string) => {
+    setBatchTranslations(prev => ({
+      ...prev,
+      [idx]: newVal
+    }));
+  };
+
+  const handleRemoveBatchImage = (idx: number) => {
+    setBatchCompressedImages(prev => {
+      const updated = prev.filter((_, i) => i !== idx);
+      if (updated.length > 0) {
+        setUploadedImageBase64(updated[0].base64);
+      } else {
+        setUploadedImageBase64(null);
+        setImageType('default');
+      }
+      return updated;
+    });
+  };
+
   // Convert uploaded image to Base64
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUploadedImageBase64(reader.result as string);
-        setImageType('upload');
-      };
-      reader.readAsDataURL(file);
+    if (e.target.files) {
+      processFiles(e.target.files);
     }
   };
 
   // Handle Drop event for custom drag upload
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUploadedImageBase64(reader.result as string);
-        setImageType('upload');
-      };
-      reader.readAsDataURL(file);
+    if (e.dataTransfer.files) {
+      processFiles(e.dataTransfer.files);
     }
   };
 
@@ -275,11 +347,88 @@ export const WordList: React.FC<WordListProps> = ({
     return res.join("•");
   };
 
-  // Submit standard single add form
+  const [batchTranslations, setBatchTranslations] = useState<Record<number, string>>({});
+
+  // Submit standard single add or multi-image batch add form
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
+    // Case 1: Multiple compressed pictures are present. Custom process for each!
+    if (batchCompressedImages.length > 0) {
+      setIsLoading(true);
+      try {
+        const batchCreatedWords: Word[] = [];
+        
+        // Process each image in parallel where possible, or sequential with simple loops
+        for (let i = 0; i < batchCompressedImages.length; i++) {
+          const item = batchCompressedImages[i];
+          const rawWord = item.wordSuggested.trim();
+          if (!rawWord) continue;
+
+          let finalSyllables = approximateSyllables(rawWord);
+          const overrideTrans = batchTranslations[i]?.trim();
+          let finalTranslation = overrideTrans || rawWord;
+          let finalDefinition = `Meaning of ${rawWord}.`;
+          let finalExample = `This is a sentence with ${rawWord}.`;
+          let finalSvgCode: string | undefined = undefined;
+
+          try {
+            const response = await fetch("/api/word/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ word: rawWord }),
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              finalSyllables = data.syllables || finalSyllables;
+              finalTranslation = overrideTrans || data.translation || finalTranslation;
+              finalDefinition = data.definition || finalDefinition;
+              finalExample = data.example || finalExample;
+              finalSvgCode = data.svgIllustration || undefined;
+            }
+          } catch (err) {
+            console.warn("AI analyzer error for word: " + rawWord, err);
+          }
+
+          const wordObj: Word = {
+            id: `word-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+            word: rawWord,
+            syllables: finalSyllables,
+            translation: finalTranslation,
+            definition: finalDefinition,
+            example: finalExample,
+            imageType: 'upload',
+            imageUrl: item.base64,
+            progress: 'learning',
+            createdAt: Date.now() + i,
+            boxId: targetBoxId
+          };
+
+          batchCreatedWords.push(wordObj);
+        }
+
+        if (batchCreatedWords.length > 0) {
+          onAddWords(batchCreatedWords);
+        }
+
+        // Reset All Add States
+        setNewWord("");
+        setTranslation("");
+        setUploadedImageBase64(null);
+        setBatchCompressedImages([]);
+        setBatchTranslations({});
+        setIsAddOpen(false);
+      } catch (err: any) {
+        setFormError(err.message || "批量图片制作单词卡片时发生意外错误，请重新尝试。");
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // Case 2: Standard single-card manual text creation
     const cleanWord = newWord.trim();
     if (!cleanWord) {
       setFormError("请输入具体单词。");
@@ -335,12 +484,24 @@ export const WordList: React.FC<WordListProps> = ({
       setNewWord("");
       setTranslation("");
       setUploadedImageBase64(null);
+      setBatchCompressedImages([]);
+      setBatchTranslations({});
       setIsAddOpen(false);
     } catch (err: any) {
       setFormError(err.message || "由于服务器网络原因遇到错误，请重新尝试。");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const closeAddModal = () => {
+    setIsAddOpen(false);
+    setNewWord("");
+    setTranslation("");
+    setUploadedImageBase64(null);
+    setBatchCompressedImages([]);
+    setBatchTranslations({});
+    setFormError(null);
   };
 
   // Handles Sequential Queue Batch Import
@@ -860,7 +1021,7 @@ export const WordList: React.FC<WordListProps> = ({
                   </div>
                 </div>
                 <button
-                  onClick={() => setIsAddOpen(false)}
+                  onClick={closeAddModal}
                   className="p-1.5 bg-white border-2 border-black hover:bg-[#FEF2F2] text-black rounded-full transition cursor-pointer"
                 >
                   <X className="w-5 h-5 stroke-[2.5px]" />
@@ -875,83 +1036,182 @@ export const WordList: React.FC<WordListProps> = ({
               )}
 
               <form onSubmit={handleAddSubmit} className="space-y-4">
-                {/* English Spelling input */}
-                <div>
-                  <label className="text-xs text-black font-black block mb-1.5">1. 英文单词 / English word</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="例如: bicycle, dinosaur, pencil..."
-                    value={newWord}
-                    onChange={(e) => handleWordFieldChange(e)}
-                    className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm"
-                  />
-                  
-                  {/* Capitalization adjustments button row */}
-                  <div className="flex gap-2.5 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (newWord) {
-                          const first = newWord.charAt(0);
-                          const toggled = first === first.toUpperCase() ? first.toLowerCase() : first.toUpperCase();
-                          const updated = toggled + newWord.slice(1);
-                          setNewWord(updated);
-                          if (!useAI && syllables === "") {
-                            setSyllables(approximateSyllables(updated));
-                          }
-                        }
-                      }}
-                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
-                    >
-                      <span>Aa 首字母大小写切换</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (newWord) {
-                          const updated = newWord.toLowerCase();
-                          setNewWord(updated);
-                          if (!useAI && syllables === "") {
-                            setSyllables(approximateSyllables(updated));
-                          }
-                        }
-                      }}
-                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
-                    >
-                      <span>aa 全小写</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (newWord) {
-                          const updated = newWord.slice(0, 1).toUpperCase() + newWord.slice(1);
-                          setNewWord(updated);
-                          if (!useAI && syllables === "") {
-                            setSyllables(approximateSyllables(updated));
-                          }
-                        }
-                      }}
-                      className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
-                    >
-                      <span>Aa 首字母大写</span>
-                    </button>
+                {/* Image Compression Status text indicator */}
+                {isCompressing && (
+                  <div className="flex items-center gap-2.5 p-3.5 bg-sky-50 border-2 border-black text-slate-800 rounded-2xl text-xs font-bold shadow-neo-sm animate-pulse">
+                    <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
+                    <span>正在后台极速极高品质压缩您上传的图片（单张均确保≤50KB，无阻塞 & 静默）...</span>
                   </div>
-                </div>
+                )}
 
-                {/* Optional Chinese Translation Overwrite */}
-                <div>
-                  <label className="text-xs text-black font-black block mb-1.5">2. 中文翻译 / Translation (可选哦)</label>
-                  <input
-                    type="text"
-                    placeholder="例如: 自行车, 恐龙 (选填，不填也会由AI自动拆解！)"
-                    value={translation}
-                    onChange={(e) => setTranslation(e.target.value)}
-                    className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm"
-                  />
-                </div>
+                {/* Mode 1: Batch images list is present */}
+                {batchCompressedImages.length > 0 ? (
+                  <div className="space-y-3.5 pt-1.5">
+                    <div className="flex justify-between items-center bg-[#FEF3C7] border-2 border-black p-3.5 rounded-2xl shadow-neo-sm">
+                      <div className="text-left">
+                        <h4 className="text-xs font-extrabold text-black">
+                          📦 多图压缩列表 ({batchCompressedImages.length}张)
+                        </h4>
+                        <p className="text-[10px] text-slate-600 font-bold mt-0.5">
+                          所有图片已等比自顺缩放，硬性锁死在 <b>50KB 以下</b>！
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBatchCompressedImages([]);
+                          setUploadedImageBase64(null);
+                        }}
+                        className="px-2.5 py-1 text-[10px] font-black text-white bg-[#FF6B6B] border-2 border-black rounded-lg shadow-neo-sm cursor-pointer transition active:translate-y-0.5"
+                      >
+                        清空多图
+                      </button>
+                    </div>
 
-                {/* WordBox category assignment */}
+                    <div className="max-h-[240px] overflow-y-auto space-y-2.5 pr-1">
+                      {batchCompressedImages.map((img, idx) => (
+                        <div 
+                          key={idx} 
+                          className="flex gap-3 bg-[#FFFBEB]/60 hover:bg-[#FFFBEB] border-2 border-black p-3 rounded-2xl shadow-neo-sm items-center relative transition"
+                        >
+                          {/* Left: Thumbnail with size indicator badge */}
+                          <div className="relative shrink-0">
+                            <img 
+                              src={img.base64} 
+                              alt="preview" 
+                              className="w-14 h-14 object-cover rounded-xl border-2 border-black shadow-neo-sm bg-white"
+                            />
+                            <span className="absolute -bottom-1 -right-1 bg-[#6BCB77] text-white text-[8px] font-black px-1.5 py-0.5 rounded-md border border-black shadow-neo-sm whitespace-nowrap">
+                              {img.sizeKB}KB ✓
+                            </span>
+                          </div>
+
+                          {/* Middle: Inputs and filename properties */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="grid grid-cols-2 gap-2 text-left">
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-black tracking-widest block uppercase mb-0.5">对应单词 Word</span>
+                                <input
+                                  type="text"
+                                  required
+                                  value={img.wordSuggested}
+                                  onChange={(e) => handleUpdateBatchWord(idx, e.target.value)}
+                                  placeholder="对应英文"
+                                  className="w-full px-2 py-1 text-xs bg-white border-2 border-black rounded-lg focus:outline-none font-sans font-bold text-black"
+                                />
+                              </div>
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-black tracking-widest block uppercase mb-0.5">中文翻译 (选填)</span>
+                                <input
+                                  type="text"
+                                  value={batchTranslations[idx] || ""}
+                                  onChange={(e) => handleUpdateBatchTranslation(idx, e.target.value)}
+                                  placeholder="AI 自动生成"
+                                  className="w-full px-2 py-1 text-xs bg-white border-2 border-black rounded-lg focus:outline-none font-sans font-bold text-black"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500">
+                              <span className="font-mono">原大小: {img.originalSizeKB}KB</span>
+                              <span className="text-[#6BCB77]">压缩率: {Math.max(1, Math.round((1 - img.sizeKB / img.originalSizeKB) * 100))}% ⚡</span>
+                            </div>
+                          </div>
+
+                          {/* Right: Individual delete X button */}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBatchImage(idx)}
+                            className="p-1 text-slate-400 hover:text-[#FF6B6B] transition cursor-pointer self-center"
+                            title="删除此张"
+                          >
+                            <X className="w-5 h-5 stroke-[2px]" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  /* Mode 2: Standard single card manual text creation */
+                  <>
+                    {/* English Spelling input */}
+                    <div>
+                      <label className="text-xs text-black font-black block mb-1.5">1. 英文单词 / English word</label>
+                      <input
+                        type="text"
+                        required={batchCompressedImages.length === 0}
+                        placeholder="例如: bicycle, dinosaur, pencil..."
+                        value={newWord}
+                        onChange={(e) => handleWordFieldChange(e)}
+                        className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm"
+                      />
+                      
+                      {/* Capitalization adjustments button row */}
+                      <div className="flex gap-2.5 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newWord) {
+                              const first = newWord.charAt(0);
+                              const toggled = first === first.toUpperCase() ? first.toLowerCase() : first.toUpperCase();
+                              const updated = toggled + newWord.slice(1);
+                              setNewWord(updated);
+                              if (!useAI && syllables === "") {
+                                setSyllables(approximateSyllables(updated));
+                              }
+                            }
+                          }}
+                          className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                        >
+                          <span>Aa 首字母大小写切换</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newWord) {
+                              const updated = newWord.toLowerCase();
+                              setNewWord(updated);
+                              if (!useAI && syllables === "") {
+                                setSyllables(approximateSyllables(updated));
+                              }
+                            }
+                          }}
+                          className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                        >
+                          <span>aa 全小写</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (newWord) {
+                              const updated = newWord.slice(0, 1).toUpperCase() + newWord.slice(1);
+                              setNewWord(updated);
+                              if (!useAI && syllables === "") {
+                                setSyllables(approximateSyllables(updated));
+                              }
+                            }
+                          }}
+                          className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 border-2 border-black rounded-lg text-[10px] font-black shadow-neo-sm transition flex items-center gap-1 cursor-pointer select-none"
+                        >
+                          <span>Aa 首字母大写</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Optional Chinese Translation Overwrite */}
+                    <div>
+                      <label className="text-xs text-black font-black block mb-1.5">2. 中文翻译 / Translation (可选哦)</label>
+                      <input
+                        type="text"
+                        placeholder="例如: 自行车, 恐龙 (选填，不填也会由AI自动拆解！)"
+                        value={translation}
+                        onChange={(e) => setTranslation(e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm bg-[#FFFBEB] border-2 border-black rounded-xl focus:outline-none transition font-sans font-bold text-black shadow-neo-sm"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* WordBox category assignment (Always Visible) */}
                 <div>
                   <label className="text-xs text-black font-black block mb-1.5">3. 存入哪个曲奇词盒？ / Secret Cookie Box</label>
                   <select
@@ -967,10 +1227,10 @@ export const WordList: React.FC<WordListProps> = ({
                   </select>
                 </div>
 
-                {/* Upload Manual Drag-and-Drop Image Dropzone */}
+                {/* Upload Manual Drag-and-Drop Image Dropzone & Multi-file support */}
                 <div>
                   <label className="text-xs text-black font-black block mb-1.5">
-                    4. 上传配套自定插图 / Cover Image（可选哦）
+                    4. {batchCompressedImages.length > 0 ? "添加更多配套自定插图 / Add More Images" : "上传配套自定插图 / Cover Image（可选且支持多选哦）"}
                   </label>
                   
                   <div
@@ -982,12 +1242,19 @@ export const WordList: React.FC<WordListProps> = ({
                     <input
                       type="file"
                       ref={fileInputRef}
-                      accept="image/*"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      multiple
                       onChange={handleFileChange}
                       className="hidden"
                     />
                     
-                    {uploadedImageBase64 ? (
+                    {batchCompressedImages.length > 0 ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <Upload className="w-7 h-7 text-green-600 mb-1 animate-bounce" />
+                        <span className="text-xs font-black text-black">继续拖拽或点击可增加多张照片 🎨</span>
+                        <span className="text-[10px] text-slate-500 font-bold mt-0.5">支持批量等比例压缩 JPG、PNG、WebP (单图≤50KB)</span>
+                      </div>
+                    ) : uploadedImageBase64 ? (
                       <div className="flex items-center gap-3">
                         <img 
                           src={uploadedImageBase64} 
@@ -995,15 +1262,15 @@ export const WordList: React.FC<WordListProps> = ({
                           className="w-14 h-14 object-cover rounded-xl border-2 border-black shadow-neo-sm"
                         />
                         <div className="text-left text-xs font-black text-black">
-                          <p className="text-[#6BCB77] flex items-center gap-1">✓ 手动配图上传成功</p>
-                          <p className="text-[10px] text-slate-600 font-bold mt-0.5">点击或者拖拽其他文件可以换一张</p>
+                          <p className="text-[#6BCB77] flex items-center gap-1">✓ 自动防闪退压缩上传成功</p>
+                          <p className="text-[10px] text-slate-600 font-bold mt-0.5">点击或者拖拽其他文件可以批量上传哦</p>
                         </div>
                       </div>
                     ) : (
                       <>
                         <Upload className="w-8 h-8 text-black mb-1 animate-bounce" style={{ animationDuration: '3s' }} />
-                        <span className="text-xs font-black text-black">点击上传 或 拖拽图片到这里</span>
-                        <span className="text-[10px] text-slate-500 font-bold mt-0.5">电脑拍下的情境卡在可以直接挑选哦</span>
+                        <span className="text-xs font-black text-black">点击上传 或 拖拽图片到这里（支持多选图片批量压缩！）</span>
+                        <span className="text-[10px] text-slate-500 font-bold mt-0.5">每张图片将静默、不卡顿自动锁死在 <b>50KB 以下</b></span>
                       </>
                     )}
                   </div>
